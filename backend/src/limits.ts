@@ -41,8 +41,8 @@ export async function dailyAllowance(account: Account): Promise<DailyAllowance> 
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
-/// Throws DailyLimitError if moving `amountUsd` would take a
-/// customer over today's limit.
+/// Throws DailyLimitError if moving `amountUsd` would take a customer
+/// over today's limit.
 export async function assertWithinLimit(account: Account, amountUsd: number, what = "this"): Promise<void> {
   const a = await dailyAllowance(account);
   if (!a.limited || amountUsd <= a.leftUsd + 1e-9) return;
