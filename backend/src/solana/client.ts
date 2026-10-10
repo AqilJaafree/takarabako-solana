@@ -47,9 +47,12 @@ export type Outcome = "confirmed" | "expired" | "failed";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /// Waits until the transaction is confirmed, has failed on-chain, or can no
-/// longer land (its blockhash expired). "expired" and "failed" both mean it
-/// is safe to build and send a new one.
-export async function confirm(signature: string, lastValidBlockHeight: number, timeoutMs = 150_000): Promise<Outcome> {
+/// longer land. "expired" is returned only once the FINALIZED block height is
+/// past lastValidBlockHeight (the blockhash can then never be included), so
+/// "expired" and "failed" both mean it is safe to build and send a new one.
+/// A thrown error means "unknown" (still pending / RPC trouble): re-check the
+/// stored signature later, never treat it as failed.
+export async function confirm(signature: string, lastValidBlockHeight: number, timeoutMs = 180_000): Promise<Outcome> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const { value } = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
@@ -59,10 +62,19 @@ export async function confirm(signature: string, lastValidBlockHeight: number, t
       return "failed";
     }
     if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) return "confirmed";
-    if ((await connection.getBlockHeight("confirmed")) > lastValidBlockHeight) {
+    // The confirmed height passing is only the cue to check the finalized one:
+    // until finalized passes too, the transaction could still be included.
+    if (
+      (await connection.getBlockHeight("confirmed")) > lastValidBlockHeight &&
+      (await connection.getBlockHeight("finalized")) > lastValidBlockHeight
+    ) {
       // One last look — it may have landed in the final valid block.
       const again = (await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0];
-      if (again && !again.err && again.confirmationStatus !== "processed") return "confirmed";
+      if (again?.err) {
+        console.error(`[solana] ${signature} failed:`, JSON.stringify(again.err));
+        return "failed";
+      }
+      if (again && (again.confirmationStatus === "confirmed" || again.confirmationStatus === "finalized")) return "confirmed";
       return "expired";
     }
     if (Date.now() > deadline) throw new Error(`transaction ${signature} still pending after ${timeoutMs / 1000}s`);
