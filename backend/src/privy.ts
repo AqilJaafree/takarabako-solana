@@ -38,6 +38,23 @@ function findEthereumWallet(linkedAccounts: LinkedAccount[]): string | undefined
   return wallet && "address" in wallet ? wallet.address : undefined;
 }
 
+function findSolanaWallet(linkedAccounts: LinkedAccount[]): string | undefined {
+  const wallet = linkedAccounts.find((a) => a.type === "wallet" && a.chain_type === "solana");
+  return wallet && "address" in wallet ? wallet.address : undefined;
+}
+
+/// The user's Privy Solana embedded wallet, created on first use.
+export async function ensureSolanaWallet(privyUserId: string): Promise<string> {
+  let user = await privy.users()._get(privyUserId);
+  let address = findSolanaWallet(user.linked_accounts);
+  if (!address) {
+    user = await privy.users().pregenerateWallets(privyUserId, { wallets: [{ chain_type: "solana" }] });
+    address = findSolanaWallet(user.linked_accounts);
+  }
+  if (!address) throw new Error(`Privy user ${privyUserId} has no solana embedded wallet`);
+  return address;
+}
+
 /// Looks up the Privy user for `email`, creating one (with a fresh embedded
 /// Ethereum wallet, funded with real Sepolia ETH) if none exists yet. Both
 /// branches are real API calls — no local stubbing.
