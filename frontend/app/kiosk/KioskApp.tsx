@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
-import type { KioskLogin, LiveEvent, OpenedPosition, Pool, RiskTier, WithdrawResult } from "@/lib/types";
+import type { Destination, KioskLogin, SolTier, LiveEvent, OpenedPosition, Pool, RiskTier, WithdrawResult } from "@/lib/types";
 import { useLiveEvents } from "@/lib/useLiveEvents";
 import { apy, cash, usd, without } from "@/lib/format";
 import { TreasureStage } from "@/components/treasure/TreasureStage";
 import { useStageDirector } from "@/components/treasure/useStageDirector";
 import { DepositFlow, type Refusal } from "./DepositFlow";
+import { DestinationPicker } from "./DestinationPicker";
 import { QrProblem, type QrProblemKind } from "./QrProblem";
 import { ConnectionLost, useBackendDown } from "@/components/ConnectionLost";
 import { MachineBadge } from "@/components/MachineBadge";
@@ -83,6 +84,7 @@ export function KioskApp({
   const startScreen: Screen = "welcome";
   const [screen, setScreen] = useState<Screen>(startScreen);
   const [session, setSession] = useState<KioskLogin | null>(null);
+  const [destination, setDestination] = useState<{ d: Destination; tier: SolTier | null; notice?: string } | null>(null);
   const [balance, setBalance] = useState(0);
   const [expiresAt, setExpiresAt] = useState(0);
   const [pending, setPending] = useState<Record<string, Pending>>({});
@@ -113,6 +115,7 @@ export function KioskApp({
   const logout = useCallback(async () => {
     await post("/api/kiosk/logout").catch(() => {});
     setSession(null);
+    setDestination(null);
     setBalance(0);
     setExpiresAt(0);
     setPending({});
@@ -245,6 +248,7 @@ export function KioskApp({
   // ---- login ----
   function startSession(login: KioskLogin) {
     setSession(login);
+    setDestination(null);
     setBalance(login.balance);
     setExpiresAt(Date.parse(login.expiresAt));
     setMessage("");
@@ -445,7 +449,13 @@ export function KioskApp({
                 <span className="label">Depositing to</span>
                 <span className={`pill ${live === "live" ? "ok" : "warn"}`}>{live === "live" ? "Live" : "Reconnecting"}</span>
               </div>
-              <div className="ens">{session.ensName}</div>
+              <div className="ens">
+                {destination?.d === "sol_hold"
+                  ? "Solana wallet · mUSD"
+                  : destination?.d === "sol_earn"
+                    ? `Meteora · ${destination.tier ?? ""} risk`
+                    : session.ensName}
+              </div>
               <div className="balance">{usd(balance)}</div>
             </section>
             {session.bridge === "failed" && (
@@ -458,13 +468,22 @@ export function KioskApp({
             )}
             {session.depositBlocked ? (
               <div className="notice pending">{session.depositBlocked}</div>
-            ) : session.depositSessionId ? (
-              <DepositFlow
+            ) : session.depositSessionId && !destination ? (
+              <DestinationPicker
                 sessionId={session.depositSessionId}
-                refusal={refusal}
-                onDone={logout}
-                onTestDeposit={testDeposit ? onTestDeposit : undefined}
+                onChosen={(d, tier, notice) => setDestination({ d, tier, notice })}
               />
+            ) : session.depositSessionId && destination ? (
+              <>
+                {destination.notice && <div className="notice pending" role="status">{destination.notice}</div>}
+                <DepositFlow
+                  sessionId={session.depositSessionId}
+                  destination={destination.d}
+                  refusal={refusal}
+                  onDone={logout}
+                  onTestDeposit={testDeposit ? onTestDeposit : undefined}
+                />
+              </>
             ) : (
               <div className="notice error">Couldn&apos;t start a deposit. Tap Done and scan again.</div>
             )}

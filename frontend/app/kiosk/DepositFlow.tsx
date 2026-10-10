@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Receipt } from "@/lib/types";
-import { cash, usd } from "@/lib/format";
+import type { Destination, Receipt } from "@/lib/types";
+import { cash, SOLSCAN_TX, TX_URL, usd } from "@/lib/format";
 
 /// The deposit terminal after a wallet-QR scan: wait for notes, show each
 /// accepted note with a running total, then Finish → an animated receipt.
@@ -34,11 +34,13 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function DepositFlow({
   sessionId,
+  destination,
   refusal,
   onDone,
   onTestDeposit,
 }: {
   sessionId: string;
+  destination: Destination;
   refusal: Refusal | null;
   onDone: () => void;
   onTestDeposit?: () => void;
@@ -96,12 +98,17 @@ export function DepositFlow({
     return () => clearTimeout(t);
   }, [phase, lastActivity]);
 
+  // Earn receipts stay up until the Meteora position opens or fails.
+  const isEarn = (receipt?.destination ?? destination) === "sol_earn";
+  const positionStatus = receipt?.solPosition?.status;
+  const positionDone = !isEarn || positionStatus === "open" || positionStatus === "failed";
+
   // Receipt settled → back to scanning for the next person after a while.
   useEffect(() => {
-    if (phase !== "receipt" || !receipt?.settled) return;
+    if (phase !== "receipt" || !receipt?.settled || !positionDone) return;
     const t = setTimeout(onDone, BACK_TO_SCAN_MS);
     return () => clearTimeout(t);
-  }, [phase, receipt?.settled, onDone]);
+  }, [phase, receipt?.settled, positionDone, onDone]);
 
   async function finish() {
     setError("");
@@ -131,7 +138,17 @@ export function DepositFlow({
           <ul className="receipt-lines">
             {receipt.notes.map((n, i) => (
               <li key={n.id} style={{ animationDelay: `${0.6 + i * 0.15}s` }}>
-                <span>{cash(n.amount, n.currency)}</span>
+                <span>
+                  {cash(n.amount, n.currency)}
+                  {n.txHash && (
+                    <>
+                      {" "}
+                      <a href={TX_URL(n.txHash, n.chain)} target="_blank" rel="noreferrer" aria-label="View transaction">
+                        ↗
+                      </a>
+                    </>
+                  )}
+                </span>
                 <span className={`receipt-status ${n.status}`}>
                   {n.status === "confirmed"
                     ? `${usd(n.usdAmount ?? 0)} ✓`
@@ -142,6 +159,23 @@ export function DepositFlow({
               </li>
             ))}
           </ul>
+          {receipt.destination === "sol_hold" && <p className="receipt-tk">Sent as mUSD to your Solana wallet</p>}
+          {receipt.destination === "sol_earn" && (
+            <p className="receipt-tk">
+              {receipt.solPosition?.openSig ? (
+                <>
+                  Meteora position opened ·{" "}
+                  <a href={SOLSCAN_TX(receipt.solPosition.openSig)} target="_blank" rel="noreferrer">
+                    view on Solscan
+                  </a>
+                </>
+              ) : receipt.solPosition?.status === "failed" ? (
+                "Your Meteora position couldn't be opened — your mUSD is safe; ask staff."
+              ) : (
+                "Opening your Meteora position…"
+              )}
+            </p>
+          )}
           <div className="receipt-total">
             <span>Total {cash(receipt.totalAmount, receipt.currency)}</span>
             <b>{usd(receipt.totalUsdConfirmed)}</b>
@@ -159,8 +193,8 @@ export function DepositFlow({
           )}
           <p className="receipt-foot">
             {receipt.settled
-              ? "All confirmed on Sepolia. A copy is on its way to your email and in your History."
-              : "Confirming on Sepolia… your email copy follows once every note is in."}
+              ? `All confirmed on ${receipt.destination === "evm" ? "Sepolia" : "Solana devnet"}. A copy is on its way to your email and in your History.`
+              : `Confirming on ${receipt.destination === "evm" ? "Sepolia" : "Solana devnet"}… your email copy follows once every note is in.`}
           </p>
         </article>
         <button className="btn btn-gold btn-block" onClick={onDone}>

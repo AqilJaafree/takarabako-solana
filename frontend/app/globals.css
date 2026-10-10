@@ -2567,6 +2567,12 @@ body:has(.range-chart svg.is-dragging) {
   cursor: not-allowed;
 }
 
+/* An odd last tile (3 destinations, 3 tiers) spans the full row. */
+.destination-picker .choice-tile:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+  aspect-ratio: auto;
+}
+
 .choice-icon {
   width: clamp(44px, 12vw, 64px);
   height: clamp(44px, 12vw, 64px);
