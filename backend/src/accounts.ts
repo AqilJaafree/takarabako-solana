@@ -9,10 +9,11 @@ export interface Account {
   boundAddress: string; // vault account (deriveBoundAddress in store.ts)
   ensName: string | null;
   qrEmailedAt: Date | null;
+  solanaWallet: string | null; // Privy Solana embedded wallet (solana/wallets.ts)
 }
 
 const COLUMNS = `privy_user_id as "privyUserId", email, privy_wallet as "privyWallet",
-  bound_address as "boundAddress", ens_name as "ensName", qr_emailed_at as "qrEmailedAt"`;
+  bound_address as "boundAddress", ens_name as "ensName", qr_emailed_at as "qrEmailedAt", solana_wallet as "solanaWallet"`;
 
 export async function findByPrivyUserId(privyUserId: string): Promise<Account | null> {
   const { rows } = await pool.query(`select ${COLUMNS} from accounts where privy_user_id = $1`, [privyUserId]);
@@ -30,7 +31,7 @@ export async function findByWallet(wallet: string): Promise<Account | null> {
   return rows[0] ?? null;
 }
 
-export async function insertAccount(a: Omit<Account, "qrEmailedAt">): Promise<Account> {
+export async function insertAccount(a: Omit<Account, "qrEmailedAt" | "solanaWallet">): Promise<Account> {
   const { rows } = await pool.query(
     `insert into accounts (privy_user_id, email, privy_wallet, bound_address, ens_name)
      values ($1, $2, $3, $4, $5) returning ${COLUMNS}`,
@@ -58,11 +59,13 @@ export interface DepositRow {
   machineName: string | null;
   machineVerified: boolean;
   createdAt: Date;
+  chain: "evm" | "sol";
+  solValidHeight: number | null;
 }
 
 const DEPOSIT_COLUMNS = `id, privy_user_id as "privyUserId", currency, amount::float as amount,
   usd_amount::float as "usdAmount", tx_hash as "txHash", status, attempts, error, session_id as "sessionId",
-  tkcash_tx_hash as "tkcashTxHash", machine_name as "machineName", machine_verified as "machineVerified", created_at as "createdAt"`;
+  tkcash_tx_hash as "tkcashTxHash", machine_name as "machineName", machine_verified as "machineVerified", created_at as "createdAt", chain, sol_valid_height::float as "solValidHeight"`;
 
 /// A deposit starts as a queued row; the deposit queue (depositQueue.ts)
 /// sends it and moves it to sending → confirmed | failed.
@@ -115,4 +118,25 @@ export async function listDeposits(privyUserId: string, limit: number): Promise<
     [privyUserId, limit],
   );
   return rows;
+}
+
+/// Solana mint: the signed transaction's signature and expiry height are
+/// stored before broadcasting, so a retry checks it instead of minting twice.
+export async function markDepositSendingSol(id: string, signature: string, usdAmount: number, validHeight: number) {
+  await pool.query(
+    `update deposits set status = 'sending', chain = 'sol', tx_hash = $2, usd_amount = $3, sol_valid_height = $4,
+       attempts = attempts + 1, updated_at = now()
+     where id = $1`,
+    [id, signature, usdAmount, validHeight],
+  );
+}
+
+/// The stored Solana transaction expired or failed on-chain: forget it so the
+/// next attempt signs a new one.
+export async function clearDepositSend(id: string) {
+  await pool.query("update deposits set status = 'queued', tx_hash = null, sol_valid_height = null, updated_at = now() where id = $1", [id]);
+}
+
+export async function setSolanaWallet(privyUserId: string, address: string) {
+  await pool.query("update accounts set solana_wallet = $2 where privy_user_id = $1", [privyUserId, address]);
 }

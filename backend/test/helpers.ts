@@ -4,6 +4,6 @@ process.env.DATABASE_URL =
 export async function freshDb() {
   const { pool, migrate } = await import("../src/db.js");
   await migrate();
-  await pool.query("truncate accounts, sessions, deposits cascade");
+  await pool.query("truncate accounts, sessions, deposits, solana_positions cascade");
   return pool;
 }
