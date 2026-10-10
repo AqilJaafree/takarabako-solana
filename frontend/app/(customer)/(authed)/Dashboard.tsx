@@ -118,7 +118,7 @@ export function Dashboard({
         <RollingNumber value={balance} className="balance" />
         <div className="ens">
           {me.ensName}
-          {me.limit?.leftUsd != null && <span className="human-badge is-pending">{usd(me.limit.leftUsd)} left today</span>}
+          {me.limit?.leftUsd != null && <span className="limit-badge">{usd(me.limit.leftUsd)} left today</span>}
         </div>
         <p className="small" style={{ marginTop: 10, marginBottom: 0, color: "rgba(244,233,218,.8)" }}>
           Earning {apy(me.apyBps)} APY in the Takarabako vault

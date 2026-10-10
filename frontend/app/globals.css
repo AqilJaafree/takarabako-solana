@@ -2354,97 +2354,16 @@ body:has(.range-chart svg.is-dragging) {
   margin-top: 8px;
 }
 
-/* ---------- World ID selfie (web app, after sign-up) ---------- */
-.world-code {
-  display: grid;
-  place-items: center;
-  min-height: 220px;
-  margin-top: 12px;
-}
-
-.world-code img {
-  border-radius: 12px;
-  background: var(--cream);
-}
-
-.world-qr-alt {
-  margin-top: 12px;
-  text-align: center;
-}
-
-.world-qr-alt summary {
-  cursor: pointer;
-}
-
-.world-flow a.btn {
-  display: block;
-  text-align: center;
-  text-decoration: none;
-}
-
-.world-flow .btn.is-disabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.world-done {
-  color: var(--ok);
-  text-align: center;
-  margin: 8px 0;
-}
-
-.kiosk-limit {
-  color: var(--warn);
-  text-align: center;
-  margin: 4px 0 8px;
-}
-
-/* ---------- Deposit terminal: QR or World ID login ---------- */
-.login-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  padding: 4px;
-  margin-bottom: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
-.login-tabs button {
-  padding: 10px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  cursor: pointer;
-}
-
-.login-tabs button[aria-selected="true"] {
-  background: var(--gold-soft);
-  color: var(--gold);
-}
-
-.human-badge {
+.limit-badge {
   display: inline-block;
   margin-left: 8px;
   padding: 1px 8px;
   border-radius: 999px;
-  background: rgba(127, 201, 160, 0.16);
-  color: var(--ok);
+  background: rgba(240, 184, 90, 0.12);
+  color: var(--warn);
   font-family: var(--font-sans);
   font-size: 12px;
   vertical-align: 2px;
-}
-
-a.human-badge {
-  text-decoration: none;
-}
-
-.human-badge.is-pending {
-  background: rgba(240, 184, 90, 0.12);
-  color: var(--warn);
 }
 
 /* ---------- kiosk: unknown-QR pop-up ---------- */

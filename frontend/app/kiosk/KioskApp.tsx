@@ -401,7 +401,7 @@ export function KioskApp({
           <section className="card deposit-choose">
             <span className="kiosk-tag">Takarabako kiosk</span>
             <h2>Deposit cash</h2>
-            <p className="muted">To deposit money, first choose how to log in.</p>
+            <p className="muted">To deposit money, scan your quick-deposit QR.</p>
             {message && <div className="notice error">{message}</div>}
             <div className="choice-grid">
               <button className="choice-tile" disabled={busy} onClick={() => { setMessage(""); setScreen("scan"); }}>

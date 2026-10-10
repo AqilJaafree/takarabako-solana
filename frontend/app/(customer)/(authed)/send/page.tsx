@@ -17,7 +17,7 @@ export default async function SendPage() {
       </p>
       {wallet.limit?.limited && wallet.limit.leftUsd !== null && (
         <div className="notice pending">
-          Unverified accounts can move {usd(wallet.limit.limitUsd, 0)} a day — <b>{usd(wallet.limit.leftUsd)} left today</b>.
+          Accounts can move {usd(wallet.limit.limitUsd, 0)} a day — <b>{usd(wallet.limit.leftUsd)} left today</b>.
         </div>
       )}
       <SendForm balance={me.balance} wallet={wallet} />
