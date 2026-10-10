@@ -147,6 +147,8 @@ genuine subnames, no stub path left for the happy case.
 
 ## Identity: World ID → Privy (swapped)
 
+> World ID was removed on 2026-10-10 (Privy email is the only identity layer; flat `DAILY_LIMIT_USD` for all accounts). The notes below are history.
+
 World ID Selfie Check (`backend/src/worldId.ts`, now deleted) was replaced
 with Privy (`backend/src/privy.ts`) after its bridge/QR handoff never got a
 scanned phone to actually connect — repeated real attempts (with the SDK's
@@ -348,3 +350,32 @@ current kiosk first, then retired ones (`KIOSK_PREVIOUS_IDS`). On ENS,
 is marked `takarabako.kind=retired-kiosk`, so notes signed as the old kiosk
 no longer verify. The first note signed as `tokyo-01.takarabako.eth`
 verified end to end and minted against Tokyo's reserve.
+
+## Solana devnet
+
+Treasury `HQ6Q4Sdu21h7NKiNZpmBecJMT8DJWEJ4cV4VaCQk6ZJ3` (funded from faucet.solana.com).
+
+| What | Address | How it was verified |
+|---|---|---|
+| mUSD (Token-2022) | `G9kbAWLmKRr8PYz3x2rrbq4CnurkPx14dQnbYz343DsS` | owner program `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`; extensions exactly MetadataPointer + TokenMetadata; "Takarabako Mock USD" / mUSD, 6 decimals; mint authority = treasury; no freeze authority. Created in tx `5bdY3Zbp8NYK1ePxMJ4im9QvPv4h9xFsXekqy7nwF1GCVKAB9JUptQKmMr2rE7EjCsUcNjErxf88rBVNaTnopZPo` |
+| DLMM V2 pair (wSOL = X, mUSD = Y) | `2U8tBjTahgLvMv1QboFCZJ8aKdNPFRnLwY47pReS2spg` | owner `LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo`; customizable permissionless pair (`createCustomizablePermissionlessLbPair2`), bin step 10, base fee 0.25% (25 bps), initial price ~149.86 mUSD/SOL (active bin -1899); fee read back on-chain via `DLMM.create` + `calculateFeeInfo`. Created in tx `8dVd8Xh8e4UtfXv2qNiRKqUGgNPXtE312KVVMpbF6w4GJumt82VGEqps155teKJ8zqJHcMhYYYbXttBY5g4YmTE` |
+| Seed position | `CUU6Xpjxt8KmbAVqf7JCQhsg9CpikUZTnLDxLdcqNBkD` | bins -1929..-1869 Spot, 0.5 SOL + 75 mUSD; tx `57w1BJ8gc79auMfqpzGvKJKbRZxhEz4F83JXhj8vXeB8ngsReKTRj7Vk8HgCugtFkLGU64wFzSzWpFj6W7ho6kFg` |
+
+**Why a customizable pair.** All four devnet `PresetParameter2` accounts
+(`4vP4DFDJ…gekn`, `7FEVd6Lp…97z`, `BB2atM1V…vwg`, `CDdy228D…Rabs`) are bin step
+10 / baseFactor 10000 / power 2, a 10% base fee. A first pair on that preset
+(`G1YDVGS8GiWcSoerdj7751CTzTsjhR9renS9gxcaAkHC`) was abandoned; its seed
+position was withdrawn (tx `4MZPuC5xcjuW6uGE3E4FZFKeK3n5hbDc6ucFH2Z7u5kyjxp7hXyP74A61z6eHbPsTpb7ts9GwwsH67gZ4b7tkH1W`,
+position account closed).
+
+**`npm run sol:smoke` (2026-10-10, live pair).** Each tier opened and closed on
+devnet and was checked on-chain rather than by trusting receipts:
+
+- Low, bins [-1959,-1900]: paid 4.99998 of 5 mUSD.
+- Medium, bins [-1929,-1900]: paid 4.999985.
+- High, bins [-1909,-1900]: paid 4.999995. These are single-sided mUSD below the price, so out of range and no SOL.
+- Swap leg (High): the price was moved by swapping 0.15 SOL (active bin -1899 to -1907); the position held 2.353717 mUSD + 0.017786484 SOL. Close swapped the SOL back for 2.63686 mUSD (tx `5JCveBRaX3MY26S12UZwdmbVcqDRXihz4Sz6Khf9cfpg8G7W8sHZucrtfWfxSWQeawG8Qq8rxo9YXRY3YDheJT58`; the recorded swap output matched the treasury's on-chain mUSD gain exactly). Payout 4.990577 mUSD (tx `Qf5tXu5fd6zDHhgs5C35UXKLwGhnTxc7wZXEwDb1QBt1ijVyaCw6o2XhQkHofUnQBPDTk7xvpX6CCY9iJM5m2C8`).
+- Position accounts were verified closed afterwards, and customer wallet gains equal the recorded payouts.
+
+Integration note: `@meteora-ag/dlmm` 1.9.x's ESM build can't load under Node,
+so `backend/src/solana/dlmmCjs.ts` loads the CJS build.

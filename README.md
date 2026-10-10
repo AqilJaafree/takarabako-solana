@@ -135,67 +135,56 @@ Scripts: `npm run ens:setup` (register the parent, deploy registry and
 resolver), `npm run ens:kiosk -- http://<pi>:8080` (publish a kiosk's device
 key), `npm run ens:migrate` (re-issue names).
 
-## World ID: one human, one account
+## Identity: Privy email, one daily limit
 
-Right after a customer creates their wallet in the web app, they take a
-**World ID Selfie Check** in World App (`/verify`). On a phone the button
-opens World App directly; on a computer they scan a QR code. The backend
-signs each request with the RP signing key (it never reaches the browser)
-and binds it to the new wallet's address as the signal, so the proof only
-ever verifies that account. It then checks the proof with the Developer
-Portal's v4 verify endpoint (`backend/src/worldId.ts`). The proof's
-nullifier, World ID's anonymous per-app id for a person, is stored under a
-unique index, so one human can't run two accounts.
+Customers sign in with an email code through Privy, which gives each one an
+embedded wallet with no seed phrase (`backend/src/privy.ts`). One email is one
+account. World ID was used earlier and was removed on 2026-10-10, so there is
+no selfie step and no verified tier any more.
 
-Before asking World, the backend refuses a proof that:
+Every account has the same flat limit: **$1,000 a day** (UTC, `DAILY_LIMIT_USD`)
+across cash deposited at the kiosk, withdrawals, yield positions opened, and
+anything sent by name (`backend/src/limits.ts`). A kiosk visit won't start once
+the day's limit is used (notes already taken are always credited). `/deposit`
+logs in by scanning the customer's wallet QR.
 
-- was made for another account (signal) or another action,
-- comes from a different World ID environment than the backend runs in (so
-  sandbox test identities can't pass as real humans in production),
-- carries a weaker credential than `WORLD_PRESET` asks for (the preset isn't
-  covered by the request signature, so the browser could swap it).
+## Solana destination
 
-It also requires every per-credential entry in World's answer to succeed,
-not only the top-level `success`.
+At the kiosk a customer picks where the cash goes:
 
-The Selfie Check is requested as a **World ID 3.0** proof (IDKit's
-`selfieCheckLegacy` preset). The 4.0 version needs World ID 4.0 in the
-customer's World App, and World App reports `world_id_4_not_available`
-without it. The customer needs a completed Selfie Check in World App.
+1. **Ethereum vault**: the original Sepolia flow above.
+2. **Solana Hold mUSD**: the treasury sends mUSD to the customer's Solana wallet.
+3. **Solana Meteora Earn**: the cash opens a Meteora DLMM V2 liquidity position.
 
-The selfie can be skipped. An unverified account can move **$1,000 a day**
-(UTC) across everything: cash deposited at the kiosk, withdrawals, yield
-positions opened, and anything sent by name (`backend/src/limits.ts`). A
-kiosk visit won't start once the day's limit is used (notes already taken are
-always credited). Verifying lifts the limit, and the customer's ENS name gets
-`takarabako.verified = world-id`.
+mUSD is a Token-2022 mock dollar (6 decimals, MetadataPointer + TokenMetadata
+only, no freeze authority) minted by the treasury on devnet. It trades against
+wSOL in a live DLMM V2 pair. Earn positions are single-sided mUSD placed next
+to the current price and held by the treasury, which tracks each one per
+customer:
 
-### Logging in with World ID at the deposit terminal
+| Tier | Shape | Bins |
+|---|---|---|
+| Low | Spot | 60 |
+| Medium | Curve | 30 |
+| High | BidAsk | 10 |
 
-`/deposit` has two ways in: **Scan my QR** (the wallet QR, for everyone) and
-**World ID** (for customers who have verified). The World ID tab shows a
-World App QR code. The backend binds that request to a one-time nonce in
-Redis (5 minutes), and the proof has to carry it. The backend then spends
-the nonce, checks the proof as above, and finds the account whose stored
-nullifier matches. It opens the same deposit-only session a wallet QR does
-(`backend/src/worldLogin.ts`, `GET /login/world/request`,
-`POST /login/world`). A World ID that hasn't verified an account is told to
-scan their QR instead.
+Closing a position pays the customer back in mUSD, swapping any SOL the
+position picked up along the way.
 
-Login uses the same action and preset as verification, because a person's
-nullifier differs between actions and between credentials. Changing either
-means verified customers have to verify again before World ID login finds
-them. World's v4 endpoint accepts the same person proving the same action
-repeatedly, which is what makes repeat logins work.
+Safety model: every signed transaction is stored before it is broadcast, and it
+is never re-sent until the finalized block height proves the old one can no
+longer land, so a retry can't pay twice.
 
-Config (`backend/.env`): `WORLD_APP_ID`, `WORLD_RP_ID`,
-`WORLD_APP_SIGNING_KEY`, `WORLD_ACTION` (`selfie`), `WORLD_ENVIRONMENT`
-(`production`, or `sandbox` for the sandbox World App), `WORLD_PRESET`
-(`selfie` = 3.0 Selfie Check, `selfie-v4`, or `device` for any World App
-user), `UNVERIFIED_DAILY_LIMIT_USD`. For sandbox testing,
-`npm run world:staging` opens a 24-hour staging verification window and
-saves its token as `WORLD_STAGING_VERIFICATION_TOKEN` (needs
-`WORLD_TEAM_API_KEY`); production doesn't use it.
+```bash
+cd backend
+npm run sol:setup     # create mUSD + the DLMM pair + a seed position (needs a funded devnet treasury)
+npm run sol:smoke     # open and close Low/Medium/High against the live pair, check payouts on-chain
+SOL_SIM=1             # in backend/.env: the treasury swaps against the pair so Earn positions accrue fees
+```
+
+Addresses and verification are in [`DEPLOYMENTS.md`](./DEPLOYMENTS.md#solana-devnet).
+`@meteora-ag/dlmm` 1.9.x's ESM build can't load under Node, so
+`backend/src/solana/dlmmCjs.ts` loads the CJS build.
 
 ## Yield on 1inch Aqua
 
@@ -238,8 +227,7 @@ The pair is mETH (a mintable ETH stand-in priced off live ETH/USD) and mUSDC.
   rationale.
 - **`frontend/`** — Next.js web app: the customer app (Privy email-code
   login, live balance, quick-deposit QR, yield, withdraw), `/kiosk`, the
-  box's new screen, `/deposit`, the public cash-deposit terminal (wallet QR
-  or World ID login), and
+  box's new screen, `/deposit`, the public cash-deposit terminal (wallet QR login), and
   `/ops`, the treasury dashboard. See [`frontend/README.md`](./frontend/README.md).
 - **`device-agent/`** — kiosk page for the Raspberry Pi 4 touchscreen, plus
   the software bridge for a real TB74 pulse bill acceptor (`gpio/`).
@@ -327,10 +315,10 @@ cd device-agent && cp public/config.example.js public/config.js && node server.j
 
 ```bash
 cd contracts && forge test          # vault + tkCASH (18 tests, incl. a supply == reserve fuzz)
-cd backend && npm test              # needs Postgres + Redis (npm run services); 78 tests:
+cd backend && npm test              # needs Postgres + Redis (npm run services); 119 tests:
                                     # webhook signatures, tkCASH encoding, policy limits,
                                     # proposal lifecycle with the executor stubbed, monitor
-                                    # rules, World ID proof checks and login, …
+                                    # rules, …
 cd backend && npm run typecheck
 ```
 
