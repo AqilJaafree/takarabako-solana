@@ -14,12 +14,16 @@ export type UserEvent =
       fxRate: number;
       txHash: string;
       balance: number;
+      chain?: "evm" | "sol";
     }
   | { type: "deposit.failed"; depositId: string; amount: number; currency: string; error: string }
   // A note the acceptor handed back: not a supported note, or in poor condition.
   | { type: "deposit.refused"; reason: "unsupported" | "bad_condition"; sessionId: string | null }
   // The note's tkCASH receipt token was minted to the customer's wallet.
-  | { type: "tkcash.minted"; depositId: string; amount: number; txHash: string };
+  | { type: "tkcash.minted"; depositId: string; amount: number; txHash: string }
+  | { type: "solana.position.opened"; positionId: string; tier: string; amountUsd: number; signature: string }
+  | { type: "solana.position.closed"; positionId: string; valueUsd: number; signature: string }
+  | { type: "solana.position.failed"; positionId: string; error: string };
 
 const channel = (privyUserId: string) => `user:${privyUserId}`;
 

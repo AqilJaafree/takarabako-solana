@@ -122,13 +122,14 @@ export async function listDeposits(privyUserId: string, limit: number): Promise<
 
 /// Solana mint: the signed transaction's signature and expiry height are
 /// stored before broadcasting, so a retry checks it instead of minting twice.
-export async function markDepositSendingSol(id: string, signature: string, usdAmount: number, validHeight: number) {
-  await pool.query(
+export async function markDepositSendingSol(id: string, signature: string, usdAmount: number, validHeight: number): Promise<boolean> {
+  const r = await pool.query(
     `update deposits set status = 'sending', chain = 'sol', tx_hash = $2, usd_amount = $3, sol_valid_height = $4,
        attempts = attempts + 1, updated_at = now()
-     where id = $1`,
+     where id = $1 and tx_hash is null`,
     [id, signature, usdAmount, validHeight],
   );
+  return (r.rowCount ?? 0) > 0; // false: another worker already stored a send
 }
 
 /// The stored Solana transaction expired or failed on-chain: forget it so the

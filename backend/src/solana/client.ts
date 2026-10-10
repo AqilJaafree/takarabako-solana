@@ -44,6 +44,7 @@ export async function broadcast(raw: Uint8Array): Promise<void> {
 }
 
 export type Outcome = "confirmed" | "expired" | "failed";
+const isSettled = (s: string | undefined) => s === "confirmed" || s === "finalized";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /// Waits until the transaction is confirmed, has failed on-chain, or can no
@@ -57,11 +58,12 @@ export async function confirm(signature: string, lastValidBlockHeight: number, t
   for (;;) {
     const { value } = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
     const st = value[0];
-    if (st?.err) {
+    // An error at "processed" can still be rolled back by a fork: only trust it once confirmed.
+    if (st?.err && isSettled(st.confirmationStatus)) {
       console.error(`[solana] ${signature} failed:`, JSON.stringify(st.err));
       return "failed";
     }
-    if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) return "confirmed";
+    if (st && !st.err && isSettled(st.confirmationStatus)) return "confirmed";
     // The confirmed height passing is only the cue to check the finalized one:
     // until finalized passes too, the transaction could still be included.
     if (
@@ -70,11 +72,11 @@ export async function confirm(signature: string, lastValidBlockHeight: number, t
     ) {
       // One last look — it may have landed in the final valid block.
       const again = (await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0];
-      if (again?.err) {
+      if (again?.err && isSettled(again.confirmationStatus)) {
         console.error(`[solana] ${signature} failed:`, JSON.stringify(again.err));
         return "failed";
       }
-      if (again && (again.confirmationStatus === "confirmed" || again.confirmationStatus === "finalized")) return "confirmed";
+      if (again && !again.err && isSettled(again.confirmationStatus)) return "confirmed";
       return "expired";
     }
     if (Date.now() > deadline) throw new Error(`transaction ${signature} still pending after ${timeoutMs / 1000}s`);
