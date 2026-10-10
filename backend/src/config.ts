@@ -89,4 +89,21 @@ export const config = {
   fx: {
     myrUsdRate: Number(process.env.MYR_USD_RATE ?? 0),
   },
+  // Solana devnet (src/solana/): Token-2022 mUSD and the Meteora DLMM V2
+  // mUSD/wSOL pair. Unset = Solana destinations are hidden at the kiosk.
+  solana: {
+    rpcUrl: process.env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com",
+    treasuryKey: process.env.SOLANA_TREASURY_KEY ?? "", // base58 secret key
+    musdMint: process.env.MUSD_MINT ?? "",
+    dlmmPair: process.env.DLMM_PAIR ?? "",
+    // Below this much SOL the treasury can't safely pay fees and rent:
+    // Solana destinations are refused at visit start.
+    minTreasurySol: Number(process.env.SOLANA_MIN_TREASURY_SOL ?? 0.5),
+    priorityMicroLamports: Number(process.env.SOLANA_PRIORITY_MICROLAMPORTS ?? 10_000),
+    // Starting price for sol:setup (mUSD per SOL).
+    initialSolPriceUsd: Number(process.env.SOLANA_INITIAL_SOL_PRICE ?? 150),
+    // Devnet market maker (solana/simulator.ts), off by default.
+    simEnabled: process.env.SOL_SIM === "1",
+    simIntervalMs: Number(process.env.SOL_SIM_INTERVAL_MS ?? 600_000),
+  },
 } as const;
