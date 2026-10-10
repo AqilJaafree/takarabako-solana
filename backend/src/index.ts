@@ -20,6 +20,9 @@ import { startOpsMonitor } from "./opsMonitor.js";
 import { startDailyReports } from "./report.js";
 import { startAquaSimulator } from "./aquaSimulator.js";
 import { migrate } from "./db.js";
+import { solanaRouter } from "./routes/solanaRoutes.js";
+import { startSolanaWorker } from "./solana/jobs.js";
+import { startSolanaSimulator } from "./solana/simulator.js";
 import { startDepositWorker } from "./depositQueue.js";
 
 const app = express();
@@ -53,6 +56,7 @@ app.use(withdrawRouter);
 app.use(positionRouter);
 app.use(opsRouter);
 app.use(dashboardRouter);
+app.use(solanaRouter);
 
 // Catches anything asyncHandler forwards (chain calls, Privy, the agent) —
 // without this, an unhandled rejection in an async route takes the whole
@@ -77,6 +81,8 @@ startOpsMonitor();
 startDailyReports();
 startAquaSimulator();
 startDeedWatcher();
+startSolanaWorker();
+startSolanaSimulator();
 
 app.listen(config.port, () => {
   console.log(`takarabako backend listening on :${config.port}`);

@@ -15,6 +15,10 @@ import { publishUserEvent } from "../events.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { findByPrivyUserId } from "../accounts.js";
 import { dailyAllowance } from "../limits.js";
+import { parseDestination, setSessionDestination, sessionDestination } from "../solana/store.js";
+import { solanaAvailable } from "../solana/client.js";
+import { solanaWalletFor } from "../solana/wallets.js";
+import { enqueueOpen } from "../solana/jobs.js";
 
 /// Deposit sessions (a visit to the cash slot, ending in a receipt), refused
 /// notes, and the customer's History.
@@ -53,6 +57,41 @@ depositSessionsRouter.get("/deposit-sessions/:id", requireSession("deposit"), as
   res.json(receipt);
 }));
 
+/// POST /deposit-sessions/:id/destination { destination, tier? } — where this
+/// visit's cash goes. Allowed until the first note; Solana needs a funded
+/// treasury and creates the customer's Solana wallet on first use.
+depositSessionsRouter.post("/deposit-sessions/:id/destination", requireSession("deposit"), asyncHandler(async (req, res) => {
+  const choice = parseDestination(req.body);
+  if (!choice) {
+    res.status(400).json({ error: "destination must be evm, sol_hold, or sol_earn with tier low|medium|high" });
+    return;
+  }
+  const session: Session = res.locals.session;
+  if (choice.destination !== "evm") {
+    const available = await solanaAvailable();
+    if (!available.ok) {
+      res.status(503).json({ error: `Solana is unavailable right now (${available.reason})`, code: "solana_unavailable" });
+      return;
+    }
+    const account = await findByPrivyUserId(session.privyUserId);
+    if (!account) {
+      res.status(404).json({ error: "unknown account" });
+      return;
+    }
+    await solanaWalletFor(account);
+  }
+  const result = await setSessionDestination(String(req.params.id), session.privyUserId, choice.destination, choice.tier);
+  if (result === "not_found") {
+    res.status(404).json({ error: "deposit session not found" });
+    return;
+  }
+  if (result === "locked") {
+    res.status(409).json({ error: "notes are already in — the destination can't change now", code: "destination_locked" });
+    return;
+  }
+  res.json({ ok: true, ...choice });
+}));
+
 /// POST /deposit-sessions/:id/finish — the customer tapped Finish. Returns
 /// the receipt; it's emailed once every note has confirmed.
 depositSessionsRouter.post("/deposit-sessions/:id/finish", requireSession("deposit"), asyncHandler(async (req, res) => {
@@ -62,6 +101,9 @@ depositSessionsRouter.post("/deposit-sessions/:id/finish", requireSession("depos
     return;
   }
   await finishDepositSession(id);
+  if ((await sessionDestination(id)).destination === "sol_earn") {
+    await enqueueOpen(id).catch((err) => console.error(`[solana] could not queue the position for ${id}:`, err));
+  }
   await maybeSendReceipt(id).catch((err) => console.error(`[receipt] ${id}:`, err));
   res.json(await getReceipt(id));
 }));

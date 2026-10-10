@@ -175,6 +175,16 @@ export async function updatePosition(id: string, patch: Partial<Omit<SolPosition
   await pool.query(`update solana_positions set ${sets.join(", ")} where id = $1`, [id, ...keys.map((k) => patch[k] ?? null)]);
 }
 
+/// Atomically flips open -> closing for the owner; false if it wasn't open
+/// (already closing/closed, or not theirs), so two clicks can't double-close.
+export async function markClosing(id: string, privyUserId: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `update solana_positions set status = 'closing', error = null where id = $1 and privy_user_id = $2 and status = 'open'`,
+    [id, privyUserId],
+  );
+  return rowCount === 1;
+}
+
 /// Writes `patch` only while `field` still equals `expected` (null = unset).
 /// False if another run changed it first — used so a stored signature is
 /// never overwritten by a second send, nor cleared after a newer one.
