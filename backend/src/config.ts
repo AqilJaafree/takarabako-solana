@@ -4,8 +4,8 @@ export const config = {
   treasuryPrivateKey: process.env.TREASURY_PRIVATE_KEY ?? "",
   usdcAddress: process.env.USDC_ADDRESS ?? "",
   vaultAddress: process.env.VAULT_ADDRESS ?? "",
-  // PRD §7.8 (revised) — Privy replaces World ID Selfie Check: email in,
-  // real embedded wallet + a stable user id out, no phone/QR/bridge needed.
+  // Privy is the identity layer: email in, real embedded wallet + a stable
+  // user id out, no phone/QR/bridge needed.
   privy: {
     appId: process.env.PRIVY_APP_ID ?? "",
     appSecret: process.env.PRIVY_APP_SECRET ?? "",
@@ -66,26 +66,9 @@ export const config = {
     baseUrl: (process.env.AI_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/+$/, ""),
     model: process.env.AI_MODEL ?? "openai/gpt-5-mini",
   },
-  // World ID (worldId.ts): proof of personhood, one human per account.
-  // IDKit 4: the backend signs each request with the RP signing key and
-  // forwards proofs to the Developer Portal to verify.
-  worldId: {
-    appId: process.env.WORLD_APP_ID ?? "",
-    rpId: process.env.WORLD_RP_ID ?? "",
-    signingKey: process.env.WORLD_APP_SIGNING_KEY ?? "",
-    action: process.env.WORLD_ACTION ?? "",
-    // (the variable is spelled WORLD_ENVIROMENT in existing .env files; both work)
-    environment: (process.env.WORLD_ENVIRONMENT ?? process.env.WORLD_ENVIROMENT ?? "production") as "production" | "staging" | "sandbox",
-    // Which credential to ask for: "device" (any World App user), "selfie"
-    // (Selfie Check, World ID 3 proofs) or "selfie-v4" (Selfie Check, World ID 4 only).
-    preset: (process.env.WORLD_PRESET ?? "device") as "device" | "selfie" | "selfie-v4",
-    // Sandbox/staging proofs only verify while the app's staging window is
-    // open (24h, opened from the Developer Portal); this is the token it issues.
-    stagingToken: process.env.WORLD_STAGING_VERIFICATION_TOKEN ?? "",
-  },
-  // Customers who haven't verified with World ID can move this much a day
-  // (deposits, withdrawals, yield, sends — limits.ts).
-  unverifiedDailyLimitUsd: Number(process.env.UNVERIFIED_DAILY_LIMIT_USD ?? 1000),
+  // Every customer can move this much a day (deposits, withdrawals, yield,
+  // sends — limits.ts). UNVERIFIED_DAILY_LIMIT_USD is the old name.
+  dailyLimitUsd: Number(process.env.DAILY_LIMIT_USD ?? process.env.UNVERIFIED_DAILY_LIMIT_USD ?? 1000),
   // Verifiable kiosks (machine.ts): "required" rejects deposits that aren't
   // signed by a kiosk whose ENS name resolves to the signer; "optional"
   // credits them but marks them unverified.

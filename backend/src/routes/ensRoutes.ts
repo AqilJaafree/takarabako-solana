@@ -12,7 +12,6 @@ import { positionSubname, tokenIdOf } from "../ens.js";
 import { registryAbi } from "../ensV2.js";
 import { confirmTkcashSend, ensureGas, holdsDeed, lookup, reconcileDeeds, sendBalance } from "../ensTransfers.js";
 import { listPositions } from "../aqua.js";
-import { isVerifiedHuman } from "../worldId.js";
 import { allowanceJson, assertWithinLimit, dailyAllowance, DailyLimitError } from "../limits.js";
 
 /// Sending by ENS name (web app). Customer-signed transfers are prepared here
@@ -75,7 +74,6 @@ ensRouter.get("/me/wallet", requireSession("full"), asyncHandler(async (_req, re
     eth,
     tkcash: tk,
     chainId: SEPOLIA,
-    worldId: { verified: isVerifiedHuman(account), credential: account.worldCredential },
     limit: allowanceJson(await dailyAllowance(account)),
   });
 }));

@@ -3,20 +3,10 @@ import { createRemoteJWKSet } from "jose";
 import type { Address } from "viem";
 import { config } from "./config.js";
 import { chainReady, fundWalletWithEthOnChain } from "./chain.js";
-import { worldIdReady } from "./worldId.js";
 
-/// PRD §7.8 (revised) — Privy replaces World ID Selfie Check as the
-/// identity/verification layer. World ID's bridge/QR handoff never
-/// established a phone connection in testing (repeatedly stuck at
-/// `waiting_for_connection` — see backend git history for the debugging
-/// trail); Privy's server-side user+wallet creation needs no phone, no QR,
-/// no bridge at all — the kiosk just takes an email on-screen.
-///
-/// Sybil-resistance signal: one email -> one Privy user (`getByEmailAddress`
-/// finds an existing user before `create` would make a new one), which is
-/// weaker than World ID's biometric uniqueness proof but real and simple.
-/// This is a deliberate trade the user chose over continuing to debug the
-/// World ID bridge.
+/// Privy is the identity layer: email in, a real embedded wallet and a
+/// stable user id out — no phone, no QR, no bridge. One email → one Privy
+/// user (`getByEmailAddress` before `create`).
 const privy = new PrivyClient({
   appId: config.privy.appId,
   appSecret: config.privy.appSecret,
@@ -76,9 +66,7 @@ export async function getOrCreateUserWallet(email: string): Promise<PrivyUserWal
   if (!walletAddress) throw new Error(`Privy user ${userId} has no ethereum embedded wallet`);
 
   let fundingTxHash: string | undefined;
-  // With World ID on, the gas gift waits until they verify as a unique human
-  // (worldId.ts) — otherwise throwaway emails could farm Sepolia ETH.
-  if (isNewUser && chainReady && !worldIdReady) {
+  if (isNewUser && chainReady) {
     try {
       const { txHash } = await fundWalletWithEthOnChain(walletAddress as Address, NEW_ACCOUNT_FUNDING_ETH);
       fundingTxHash = txHash;

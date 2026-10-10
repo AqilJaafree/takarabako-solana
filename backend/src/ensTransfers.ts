@@ -27,7 +27,6 @@ export interface Resolved {
   name: string;
   address: string;
   kind: string | null; // takarabako.kind text record: customer | kiosk | aqua-position
-  verifiedHuman: boolean; // takarabako.verified = world-id
   customer: { ensName: string | null } | null;
   tkcashAllowlisted: boolean | null;
 }
@@ -36,9 +35,8 @@ export async function lookup(name: string): Promise<Resolved | null> {
   const clean = name.trim().toLowerCase();
   const r = await resolveName(clean);
   if (!r) return null;
-  const [kind, verified, account, allowlisted] = await Promise.all([
+  const [kind, account, allowlisted] = await Promise.all([
     textRecord(clean, "takarabako.kind"),
-    textRecord(clean, "takarabako.verified"),
     accountByWallet(r.address),
     cashReceiptReady ? mbCall<boolean>(ALIASES.tkcash, LABELS.cashReceipt, "allowlist", [r.address]).catch(() => null) : Promise.resolve(null),
   ]);
@@ -46,7 +44,6 @@ export async function lookup(name: string): Promise<Resolved | null> {
     name: clean,
     address: r.address,
     kind,
-    verifiedHuman: verified === "world-id",
     customer: account ? { ensName: account.ensName } : null,
     tkcashAllowlisted: allowlisted,
   };

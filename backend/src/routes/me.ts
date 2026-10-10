@@ -33,7 +33,6 @@ meRouter.get("/me", requireSession("full"), asyncHandler(async (_req, res) => {
     balance,
     apyBps,
     positions: await positionSummaries(userId).catch(() => []),
-    worldId: { verified: Boolean(account.worldVerifiedAt), credential: account.worldCredential, verifiedAt: account.worldVerifiedAt },
     limit: allowanceJson(await dailyAllowance(account)),
     expiresAt: res.locals.session.expiresAt,
   });

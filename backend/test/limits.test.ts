@@ -2,11 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.js";
 
-process.env.WORLD_APP_ID = "app_test";
-process.env.WORLD_RP_ID = "rp_test";
-process.env.WORLD_APP_SIGNING_KEY = `0x${"11".repeat(32)}`;
-process.env.WORLD_ACTION = "eth-tokyo";
-process.env.UNVERIFIED_DAILY_LIMIT_USD = "1000";
+process.env.DAILY_LIMIT_USD = "1000";
 delete process.env.MULTIBAAS_URL;
 delete process.env.ENS_REGISTRY_ADDRESS;
 
@@ -44,9 +40,12 @@ test("going over the limit is refused; up to it is fine", async () => {
   });
 });
 
-test("a verified human has no limit", async () => {
-  await pool.query("update accounts set world_verified_at = now() where privy_user_id = 'u-carol'");
+test("the limit applies to every account and nothing lifts it", async () => {
   const a = await dailyAllowance(await carol());
-  assert.equal(a.limited, false);
-  await assertWithinLimit(await carol(), 1_000_000);
+  assert.equal(a.limited, true);
+  await assert.rejects(assertWithinLimit(await carol(), 1_000_000), (err) => {
+    assert.ok(err instanceof DailyLimitError);
+    assert.doesNotMatch(err.message, /World ID/);
+    return true;
+  });
 });

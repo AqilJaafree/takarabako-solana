@@ -1,12 +1,10 @@
 import { config } from "./config.js";
 import { pool } from "./db.js";
 import type { Account } from "./accounts.js";
-import { worldIdReady } from "./worldId.js";
 
-/// Daily limit for customers who haven't verified with a World ID selfie:
-/// everything they move in a day (UTC) — cash deposited, withdrawals, yield
-/// positions opened, and anything sent by name — adds up to at most
-/// UNVERIFIED_DAILY_LIMIT_USD ($1,000). Verifying lifts it.
+/// Daily limit for every customer: everything they move in a day (UTC) —
+/// cash deposited, withdrawals, yield positions opened, and anything sent by
+/// name — adds up to at most DAILY_LIMIT_USD ($1,000).
 
 export interface DailyAllowance {
   limited: boolean;
@@ -36,22 +34,20 @@ export async function usedToday(privyUserId: string): Promise<number> {
 }
 
 export async function dailyAllowance(account: Account): Promise<DailyAllowance> {
-  const limitUsd = config.unverifiedDailyLimitUsd;
-  if (!worldIdReady || account.worldVerifiedAt) return { limited: false, limitUsd, usedUsd: 0, leftUsd: Infinity };
+  const limitUsd = config.dailyLimitUsd;
   const usedUsd = await usedToday(account.privyUserId);
   return { limited: true, limitUsd, usedUsd, leftUsd: Math.max(0, limitUsd - usedUsd) };
 }
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
-/// Throws DailyLimitError if moving `amountUsd` would take an unverified
+/// Throws DailyLimitError if moving `amountUsd` would take a
 /// customer over today's limit.
 export async function assertWithinLimit(account: Account, amountUsd: number, what = "this"): Promise<void> {
   const a = await dailyAllowance(account);
   if (!a.limited || amountUsd <= a.leftUsd + 1e-9) return;
   throw new DailyLimitError(
-    `Unverified accounts can move ${usd(a.limitUsd)} a day and you have ${usd(a.leftUsd)} left today, so ${what} (${usd(amountUsd)}) can't go through. ` +
-      "Verify with a World ID selfie to lift the limit.",
+    `Accounts can move ${usd(a.limitUsd)} a day and you have ${usd(a.leftUsd)} left today, so ${what} (${usd(amountUsd)}) can't go through.`,
   );
 }
 
