@@ -118,13 +118,7 @@ export function Dashboard({
         <RollingNumber value={balance} className="balance" />
         <div className="ens">
           {me.ensName}
-          {me.worldId?.verified ? (
-            <span className="human-badge">✓ verified human</span>
-          ) : me.worldId ? (
-            <Link href="/verify" className="human-badge is-pending" title="Take a World ID selfie to lift the daily limit">
-              {me.limit?.leftUsd != null ? `${usd(me.limit.leftUsd)} left today · verify` : "not verified · verify"}
-            </Link>
-          ) : null}
+          {me.limit?.leftUsd != null && <span className="human-badge is-pending">{usd(me.limit.leftUsd)} left today</span>}
         </div>
         <p className="small" style={{ marginTop: 10, marginBottom: 0, color: "rgba(244,233,218,.8)" }}>
           Earning {apy(me.apyBps)} APY in the Takarabako vault

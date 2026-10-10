@@ -59,7 +59,6 @@ export function NameField({ value, onChange, resolved }: { value: string; onChan
           <>
             <span className="tone-ok">✓ {r.name}</span> → <span className="mono">{shortHex(r.address, 8, 6)}</span>
             {r.customer ? <span className="pill ok">Takarabako customer</span> : <span className="pill warn">External wallet</span>}
-            {r.verifiedHuman && <span className="pill ok">Verified human</span>}
             {r.kind === "kiosk" && <span className="pill">Kiosk</span>}
           </>
         ) : resolved.error ? (
@@ -90,7 +89,7 @@ export function SendForm({ balance, wallet }: { balance: number; wallet: MyWalle
 
   const limitLeft = wallet.limit?.limited ? wallet.limit.leftUsd : null;
   const problem = limitLeft !== null && value > limitLeft
-    ? `Unverified accounts can move ${usd(wallet.limit!.limitUsd, 0)} a day — ${usd(limitLeft)} left today. Take a World ID selfie to lift it.`
+    ? `Accounts can move ${usd(wallet.limit!.limitUsd, 0)} a day — ${usd(limitLeft)} left today.`
     : !r
     ? null
     : asset === "balance" && !r.customer

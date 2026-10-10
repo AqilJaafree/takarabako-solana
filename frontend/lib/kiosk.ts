@@ -55,7 +55,6 @@ interface BackendLogin {
   expiresAt: string;
   qrFallback?: string | null;
   qrEmailed?: boolean;
-  worldVerified?: boolean;
   limit?: DailyLimit;
 }
 
@@ -66,7 +65,7 @@ export async function kioskLoginResponse(req: NextRequest, login: BackendLogin) 
   let depositBlocked: string | null = null;
   const depositSession = await backendFetch<{ id: string }>("/deposit-sessions", { token: login.token, method: "POST" }).catch(
     (err) => {
-      // An unverified customer who has used today's limit: keep the slot closed.
+      // Today's limit is used: keep the slot closed.
       if (err instanceof BackendError && err.status === 403) depositBlocked = err.message;
       else console.error("[kiosk] could not open a deposit session:", err instanceof Error ? err.message : err);
       return null;
@@ -82,7 +81,6 @@ export async function kioskLoginResponse(req: NextRequest, login: BackendLogin) 
     qrEmailed: login.qrEmailed ?? false,
     bridge: bridgeStatus,
     depositSessionId: depositSession?.id ?? null,
-    worldVerified: login.worldVerified ?? false,
     limit: login.limit ?? null,
     depositBlocked,
   };

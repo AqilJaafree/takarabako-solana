@@ -28,12 +28,11 @@ export interface Me {
   balance: number;
   apyBps: number;
   positions: Position[];
-  worldId?: { verified: boolean; credential: string | null; verifiedAt: string | null };
   limit?: DailyLimit;
   expiresAt: string;
 }
 
-/// What an account that hasn't verified with World ID may still move today.
+/// What an account may still move today.
 export interface DailyLimit {
   limited: boolean;
   limitUsd: number;
@@ -256,7 +255,6 @@ export interface ResolvedName {
   name: string;
   address: string;
   kind: string | null;
-  verifiedHuman?: boolean;
   customer: { ensName: string | null } | null;
   tkcashAllowlisted: boolean | null;
 }
@@ -268,7 +266,6 @@ export interface MyWallet {
   eth: number;
   tkcash: { balance: number; allowlisted: boolean; dailyLimit: number | null; spentToday: number } | null;
   chainId: number;
-  worldId?: { verified: boolean; credential: string | null };
   limit?: DailyLimit;
 }
 
@@ -283,7 +280,6 @@ export interface KioskLogin {
   qrEmailed: boolean;
   bridge: "ok" | "skipped" | "failed";
   depositSessionId: string | null;
-  worldVerified: boolean;
-  limit: DailyLimit | null; // unverified accounts: what's left today
+  limit: DailyLimit | null; // what's left today
   depositBlocked: string | null; // why a deposit couldn't start (e.g. today's limit is used)
 }

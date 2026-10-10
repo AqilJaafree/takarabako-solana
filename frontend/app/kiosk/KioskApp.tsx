@@ -8,7 +8,6 @@ import { apy, cash, usd, without } from "@/lib/format";
 import { TreasureStage } from "@/components/treasure/TreasureStage";
 import { useStageDirector } from "@/components/treasure/useStageDirector";
 import { DepositFlow, type Refusal } from "./DepositFlow";
-import { WorldLogin } from "./WorldLogin";
 import { QrProblem, type QrProblemKind } from "./QrProblem";
 import { ConnectionLost, useBackendDown } from "@/components/ConnectionLost";
 import { MachineBadge } from "@/components/MachineBadge";
@@ -24,7 +23,7 @@ const bubble = (text: string) => (text.length > 170 ? `${text.slice(0, 167).trim
 ///   - email login → full access (deposit, yield, withdraw as cash or to wallet)
 ///   - wallet-QR scan → deposit only
 /// mode="deposit" (the /deposit page) is a cash-deposit terminal: it opens on
-/// a choice of login (deposit QR or World ID), takes deposit-only sessions,
+/// a deposit-QR login, takes deposit-only sessions,
 /// and goes back to that choice after every customer.
 /// The backend session token never reaches this page: /api/kiosk/* keeps it
 /// in an httpOnly cookie and hands it to the Pi bridge server-side.
@@ -94,7 +93,6 @@ export function KioskApp({
   const [ticker, setTicker] = useState<string[]>([]);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   // Deposit terminal: which login the scan screen shows.
-  const [loginVia, setLoginVia] = useState<"qr" | "world">("qr");
   const [qrProblem, setQrProblem] = useState<QrProblemKind | null>(null);
   // The unknown QR just scanned, and (after "Scan a new QR") a short window in
   // which the scanner skips it, so the same phone can't re-open the pop-up.
@@ -122,7 +120,6 @@ export function KioskApp({
     setReceipt(null);
     setMessage("");
     setScreen(startScreen);
-    setLoginVia("qr");
     catSay(GREETING, "idle", 0);
   }, [catSay, GREETING, startScreen]);
 
@@ -407,15 +404,10 @@ export function KioskApp({
             <p className="muted">To deposit money, first choose how to log in.</p>
             {message && <div className="notice error">{message}</div>}
             <div className="choice-grid">
-              <button className="choice-tile" disabled={busy} onClick={() => { setMessage(""); setLoginVia("qr"); setScreen("scan"); }}>
+              <button className="choice-tile" disabled={busy} onClick={() => { setMessage(""); setScreen("scan"); }}>
                 <QrIcon />
                 <span className="choice-title">{busy ? "Checking your QR…" : "Scan my QR"}</span>
                 <span className="choice-sub">Show the QR from the app’s Deposit tab</span>
-              </button>
-              <button className="choice-tile" disabled={busy} onClick={() => { setMessage(""); setLoginVia("world"); setScreen("scan"); }}>
-                <WorldIdIcon />
-                <span className="choice-title">Log in with World ID</span>
-                <span className="choice-sub">Scan with World App on your phone</span>
               </button>
             </div>
             <p className="muted small" style={{ margin: "14px 0 0" }}>New here? Sign up in the Takarabako app first.</p>
@@ -436,18 +428,7 @@ export function KioskApp({
           </section>
         )}
 
-        {screen === "scan" && depositOnly && (
-          <div className="login-tabs" role="tablist" aria-label="How to log in">
-            <button role="tab" aria-selected={loginVia === "qr"} onClick={() => setLoginVia("qr")}>Scan my QR</button>
-            <button role="tab" aria-selected={loginVia === "world"} onClick={() => setLoginVia("world")}>World ID</button>
-          </div>
-        )}
-
-        {screen === "scan" && depositOnly && loginVia === "world" && (
-          <WorldLogin onLogin={startSession} onUseQr={() => setLoginVia("qr")} />
-        )}
-
-        {screen === "scan" && !(depositOnly && loginVia === "world") && (
+        {screen === "scan" && (
           <Scanner
             onResult={onQr}
             ignore={ignoreQr}
@@ -472,7 +453,7 @@ export function KioskApp({
             )}
             {session.limit?.limited && session.limit.leftUsd !== null && !session.depositBlocked && (
               <p className="kiosk-limit small">
-                {usd(session.limit.leftUsd)} of today&apos;s {usd(session.limit.limitUsd, 0)} left · verify with a World ID selfie in the app to lift it
+                {usd(session.limit.leftUsd)} of today&apos;s {usd(session.limit.limitUsd, 0)} left
               </p>
             )}
             {session.depositBlocked ? (
@@ -707,14 +688,3 @@ function QrIcon() {
   );
 }
 
-function WorldIdIcon() {
-  return (
-    <svg className="choice-icon" viewBox="0 0 48 48" aria-hidden="true">
-      <g fill="none" stroke="currentColor" strokeWidth="3">
-        <circle cx="24" cy="24" r="18" />
-        <circle cx="24" cy="24" r="8" />
-        <path d="M6 24h10M32 24h10" strokeLinecap="round" />
-      </g>
-    </svg>
-  );
-}

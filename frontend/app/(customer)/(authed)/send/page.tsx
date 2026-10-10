@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import type { Me, MyWallet } from "@/lib/types";
 import { loadForPage } from "@/lib/serverData";
-import Link from "next/link";
 import { usd } from "@/lib/format";
 import { SendForm } from "./SendForm";
 
@@ -18,8 +17,7 @@ export default async function SendPage() {
       </p>
       {wallet.limit?.limited && wallet.limit.leftUsd !== null && (
         <div className="notice pending">
-          Unverified accounts can move {usd(wallet.limit.limitUsd, 0)} a day — <b>{usd(wallet.limit.leftUsd)} left today</b>.{" "}
-          <Link href="/verify">Take a World ID selfie</Link> to lift the limit.
+          Unverified accounts can move {usd(wallet.limit.limitUsd, 0)} a day — <b>{usd(wallet.limit.leftUsd)} left today</b>.
         </div>
       )}
       <SendForm balance={me.balance} wallet={wallet} />
