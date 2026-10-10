@@ -178,11 +178,15 @@ export type LiveEvent =
       fxRate: number;
       txHash: string;
       balance: number;
+      chain?: "evm" | "sol";
       ts: number;
     }
   | { type: "deposit.failed"; depositId: string; amount: number; currency: string; error: string; ts: number }
   | { type: "deposit.refused"; reason: "unsupported" | "bad_condition"; sessionId: string | null; ts: number }
-  | { type: "tkcash.minted"; depositId: string; amount: number; txHash: string; ts: number };
+  | { type: "tkcash.minted"; depositId: string; amount: number; txHash: string; ts: number }
+  | { type: "solana.position.opened"; positionId: string; tier: string; amountUsd: number; signature: string; ts: number }
+  | { type: "solana.position.closed"; positionId: string; valueUsd: number; signature: string; ts: number }
+  | { type: "solana.position.failed"; positionId: string; error: string; ts: number };
 
 /// A deposit session's receipt (backend history.ts).
 export interface ReceiptNote {
@@ -195,6 +199,7 @@ export interface ReceiptNote {
   machineName?: string | null;
   machineVerified?: boolean;
   status: "queued" | "sending" | "confirmed" | "failed";
+  chain: "evm" | "sol";
   at: string;
 }
 
@@ -208,6 +213,9 @@ export interface Receipt {
   currency: string;
   totalUsdConfirmed: number;
   settled: boolean;
+  destination: Destination;
+  tier: SolTier | null;
+  solPosition: { id: string; status: string; openSig: string | null } | null;
 }
 
 export type HistoryItem =
@@ -236,6 +244,7 @@ export type HistoryItem =
       rationale: string | null;
       ensName: string | null;
       txHash: string | null;
+      chain: "evm" | "sol";
     }
   | { kind: "refused"; at: string; id: string; reason: "unsupported" | "bad_condition" | "no_session"; sessionId: string | null }
   | {
@@ -282,4 +291,40 @@ export interface KioskLogin {
   depositSessionId: string | null;
   limit: DailyLimit | null; // what's left today
   depositBlocked: string | null; // why a deposit couldn't start (e.g. today's limit is used)
+}
+
+export type Destination = "evm" | "sol_hold" | "sol_earn";
+export type SolTier = "low" | "medium" | "high";
+
+/// GET /solana/status
+export interface SolanaStatus {
+  ready: boolean;
+  reason: string | null;
+  pool: { pair: string; activeId: number; binStep: number; musdIsX: boolean; solPriceUsd: number } | null;
+  tiers: Array<{ id: SolTier; label: string; blurb: string; width: number }>;
+}
+
+export interface SolanaPosition {
+  id: string;
+  tier: SolTier;
+  label: string;
+  status: "opening" | "open" | "closing" | "closed" | "failed";
+  musdIn: number;
+  valueUsd: number | null;
+  feesUsd: number | null;
+  inRange: boolean | null;
+  minBinId: number | null;
+  maxBinId: number | null;
+  openSig: string | null;
+  payoutSig: string | null;
+  valueOut: number | null;
+  createdAt: string;
+}
+
+/// GET /solana/me
+export interface SolanaMe {
+  ready: boolean;
+  wallet: string | null;
+  musd: number | null;
+  positions: SolanaPosition[];
 }

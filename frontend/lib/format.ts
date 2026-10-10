@@ -16,6 +16,10 @@ export function shortHex(hex: string, head = 6, tail = 4): string {
 }
 
 export const SEPOLIA_TX = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
+export const SOLSCAN_TX = (sig: string) => `https://solscan.io/tx/${sig}?cluster=devnet`;
+export const SOLSCAN_ACCOUNT = (addr: string) => `https://solscan.io/account/${addr}?cluster=devnet`;
+/// The right explorer for a stored transaction reference.
+export const TX_URL = (hash: string, chain: "evm" | "sol" = "evm") => (chain === "sol" ? SOLSCAN_TX(hash) : SEPOLIA_TX(hash));
 
 export function timeAgo(iso: string): string {
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
