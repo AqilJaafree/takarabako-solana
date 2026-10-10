@@ -4,7 +4,7 @@
 // @meteora-ag/dlmm's ESM build can't load under Node — use the CJS shim.
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { NATIVE_MINT, TOKEN_2022_PROGRAM_ID, getMint, getMetadataPointerState } from "@solana/spl-token";
-import type { LBCLMM_PROGRAM_IDS, deriveLbPairWithPresetParamWithIndexKey } from "@meteora-ag/dlmm";
+import type { ActivationType, LBCLMM_PROGRAM_IDS, deriveCustomizablePermissionlessLbPair, deriveLbPairWithPresetParamWithIndexKey } from "@meteora-ag/dlmm";
 import BN from "bn.js";
 import { createRequire } from "node:module";
 import { config } from "../src/config.js";
@@ -16,6 +16,8 @@ import { createMusdMint, mintToTx } from "../src/solana/musd.js";
 const dlmmCjs = createRequire(import.meta.url)("@meteora-ag/dlmm") as {
   LBCLMM_PROGRAM_IDS: typeof LBCLMM_PROGRAM_IDS;
   deriveLbPairWithPresetParamWithIndexKey: typeof deriveLbPairWithPresetParamWithIndexKey;
+  deriveCustomizablePermissionlessLbPair: typeof deriveCustomizablePermissionlessLbPair;
+  ActivationType: typeof ActivationType;
 };
 
 const OPT = { cluster: "devnet" as const };
@@ -43,33 +45,58 @@ process.env.MUSD_MINT = mint.toBase58();
 (config.solana as { musdMint: string }).musdMint = mint.toBase58();
 
 // 2. pair — X = wSOL, Y = mUSD, so the price is mUSD per SOL.
-// The pair address is a PDA of (preset parameter, sorted mints), so it is
-// derived directly instead of scanning every pair with getLbPairs (slow and
-// rate-limited on public devnet RPC). That also makes a re-run after a crash
-// between "pair created" and ".env updated" safe.
+// The pair address is a PDA, so it is derived directly instead of scanning
+// every pair with getLbPairs (slow and rate-limited on public devnet RPC).
+// That also makes a re-run after a crash between "pair created" and ".env
+// updated" safe.
+//
+// The pair's base swap fee is what a customer loses when an Earn position
+// that bought SOL is swapped back to mUSD, so pick it by the actual fee rate
+// — DLMM.calculateFeeInfo(baseFactor, binStep, baseFeePowerFactor) — not by
+// baseFactor alone (baseFeePowerFactor scales it: devnet's bin-step-10
+// presets have baseFactor 10000 and power 2 = a 10% fee). Prefer bin step 10
+// and a preset whose base fee is within FEE_MIN..FEE_MAX % (closest to
+// FEE_TARGET). If no preset qualifies, create a customizable permissionless
+// pair (one per mint pair) with exactly FEE_TARGET.
+const BIN_STEP = 10;
+const FEE_TARGET = 0.25; // %
+const FEE_MIN = 0.1;
+const FEE_MAX = 0.3;
+const feePct = (a: { baseFactor: number; binStep: number; baseFeePowerFactor?: number }) =>
+  Number(DLMM.calculateFeeInfo(a.baseFactor, a.binStep, a.baseFeePowerFactor ?? 0).baseFeeRatePercentage.toString());
+
 await checkBalance("pair");
+const { presetParameter2 } = await DLMM.getAllPresetParameters(connection, OPT);
+const candidates = presetParameter2
+  .map((p) => ({ p, fee: feePct(p.account) }))
+  .filter((c) => c.p.account.binStep === BIN_STEP && c.fee >= FEE_MIN && c.fee <= FEE_MAX)
+  .sort((a, b) => Math.abs(a.fee - FEE_TARGET) - Math.abs(b.fee - FEE_TARGET) || a.p.publicKey.toBase58().localeCompare(b.p.publicKey.toBase58()));
+for (const p of presetParameter2) console.log("  preset", p.publicKey.toBase58(), "bin step", p.account.binStep, "base factor", p.account.baseFactor, "power", p.account.baseFeePowerFactor, "fee", `${feePct(p.account)}%`);
+const chosen = candidates[0]?.p ?? null;
+const derived = chosen
+  ? dlmmCjs.deriveLbPairWithPresetParamWithIndexKey(chosen.publicKey, NATIVE_MINT, mint, PROGRAM_ID)[0]
+  : dlmmCjs.deriveCustomizablePermissionlessLbPair(NATIVE_MINT, mint, PROGRAM_ID)[0];
+console.log(
+  chosen
+    ? `chosen preset ${chosen.publicKey.toBase58()} bin step ${chosen.account.binStep} fee ${feePct(chosen.account)}%`
+    : `no bin-step-${BIN_STEP} preset with a ${FEE_MIN}-${FEE_MAX}% fee; using a customizable permissionless pair at ${FEE_TARGET}%`,
+);
 let pairKey = config.solana.dlmmPair ? new PublicKey(config.solana.dlmmPair) : null;
+if (pairKey && !pairKey.equals(derived)) console.warn(`DLMM_PAIR ${pairKey.toBase58()} is not the pair this setup would use (${derived.toBase58()}) — keeping DLMM_PAIR`);
 if (!pairKey) {
-  const { presetParameter2 } = await DLMM.getAllPresetParameters(connection, OPT);
-  // Prefer bin step 10 (0.1%) — fine-grained enough for a stable/SOL pair.
-  // Several presets can share a bin step: pick the lowest base factor, then
-  // by address, so the choice is stable across runs.
-  const sorted = [...presetParameter2].sort(
-    (a, b) => a.account.binStep - b.account.binStep || a.account.baseFactor - b.account.baseFactor || a.publicKey.toBase58().localeCompare(b.publicKey.toBase58()),
-  );
-  const preset = sorted.find((p) => p.account.binStep === 10) ?? sorted[0];
-  if (!preset) throw new Error("no PresetParameter2 on devnet");
-  console.log("preset", preset.publicKey.toBase58(), "bin step", preset.account.binStep, "base factor", preset.account.baseFactor);
-  const [derived] = dlmmCjs.deriveLbPairWithPresetParamWithIndexKey(preset.publicKey, NATIVE_MINT, mint, PROGRAM_ID);
-  const existing = await connection.getAccountInfo(derived, "confirmed");
-  if (existing) {
+  if (await connection.getAccountInfo(derived, "confirmed")) {
     console.log("DLMM pair already exists", derived.toBase58());
   } else {
     const pricePerLamport = DLMM.getPricePerLamport(9, mintInfo.decimals, config.solana.initialSolPriceUsd);
-    const activeId = new BN(DLMM.getBinIdFromPrice(pricePerLamport, preset.account.binStep, true));
-    const tx = await DLMM.createLbPair2(connection, t.publicKey, NATIVE_MINT, mint, preset.publicKey, activeId, OPT);
+    const activeId = new BN(DLMM.getBinIdFromPrice(pricePerLamport, BIN_STEP, true));
+    const tx = chosen
+      ? await DLMM.createLbPair2(connection, t.publicKey, NATIVE_MINT, mint, chosen.publicKey, activeId, OPT)
+      : await DLMM.createCustomizablePermissionlessLbPair2(
+          connection, new BN(BIN_STEP), NATIVE_MINT, mint, activeId, new BN(Math.round(FEE_TARGET * 100)), // fee in bps
+          dlmmCjs.ActivationType.Timestamp, false, t.publicKey, undefined, false, undefined, undefined, OPT,
+        );
     const sig = await sendAndConfirm(tx);
-    console.log("created DLMM pair", derived.toBase58(), "bin step", preset.account.binStep, "active id", activeId.toString(), "tx", sig);
+    console.log("created DLMM pair", derived.toBase58(), "bin step", BIN_STEP, "active id", activeId.toString(), "tx", sig);
   }
   pairKey = derived;
 }
@@ -103,7 +130,10 @@ if (userPositions.length === 0) {
 
 await pool.refetchStates();
 const active = await pool.getActiveBin();
-console.log("\npair", pairKey.toBase58(), "bin step", pool.lbPair.binStep);
+const pairInfo = await connection.getAccountInfo(pairKey, "confirmed");
+const params = pool.lbPair.parameters;
+console.log("\npair", pairKey.toBase58(), "owner", pairInfo?.owner.toBase58(), "bin step", pool.lbPair.binStep,
+  "base fee", `${feePct({ baseFactor: params.baseFactor, binStep: pool.lbPair.binStep, baseFeePowerFactor: params.baseFeePowerFactor })}%`);
 console.log("active bin", active.binId, "price", active.pricePerToken, "mUSD/SOL", "x", active.xAmount.toString(), "y", active.yAmount.toString());
 await checkBalance("done");
 console.log("\nPut these in backend/.env:");

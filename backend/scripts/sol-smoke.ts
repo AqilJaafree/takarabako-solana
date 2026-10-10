@@ -63,7 +63,9 @@ function musdDelta(tx: ParsedTransactionWithMeta, owner: PublicKey): bigint {
 await migrate();
 const user = `smoke-${Date.now()}`;
 const wallet = Keypair.generate().publicKey; // a throwaway devnet wallet stands in for the Privy one
-await insertAccount({ privyUserId: user, email: `${user}@example.com`, privyWallet: `0x${"0".repeat(39)}1`, boundAddress: `0x${"0".repeat(39)}2`, ensName: null });
+// unique placeholder EVM addresses per run (privy_wallet is unique), so the smoke can be re-run
+const evm = (n: number) => `0x${(BigInt(Date.now()) * 10n + BigInt(n)).toString(16).padStart(40, "0")}`;
+await insertAccount({ privyUserId: user, email: `${user}@example.com`, privyWallet: evm(1), boundAddress: evm(2), ensName: null });
 await setSolanaWallet(user, wallet.toBase58());
 console.log(`account ${user}, customer wallet ${wallet.toBase58()}`);
 
