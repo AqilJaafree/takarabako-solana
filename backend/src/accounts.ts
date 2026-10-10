@@ -133,9 +133,14 @@ export async function markDepositSendingSol(id: string, signature: string, usdAm
 }
 
 /// The stored Solana transaction expired or failed on-chain: forget it so the
-/// next attempt signs a new one.
-export async function clearDepositSend(id: string) {
-  await pool.query("update deposits set status = 'queued', tx_hash = null, sol_valid_height = null, updated_at = now() where id = $1", [id]);
+/// next attempt signs a new one. Compare-and-set on the checked signature:
+/// false if it has changed since.
+export async function clearDepositSend(id: string, signature: string): Promise<boolean> {
+  const r = await pool.query(
+    "update deposits set status = 'queued', tx_hash = null, sol_valid_height = null, updated_at = now() where id = $1 and tx_hash = $2",
+    [id, signature],
+  );
+  return (r.rowCount ?? 0) > 0;
 }
 
 export async function setSolanaWallet(privyUserId: string, address: string) {

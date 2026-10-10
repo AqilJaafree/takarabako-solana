@@ -36,7 +36,14 @@ export async function enqueueOpen(sessionId: string, opts: { retry?: boolean } =
   // BullMQ custom job ids cannot contain ':'. The plain id dedupes Finish +
   // sweep; a recovery retry needs a fresh one (failed jobs are kept).
   const jobId = opts.retry ? `open-${sessionId}-${Date.now()}` : `open-${sessionId}`;
-  await positionsQueue().add("open", { kind: "open", sessionId }, { jobId });
+  const q = positionsQueue();
+  if (!opts.retry) {
+    // A job that failed for good before any position row existed leaves nothing
+    // for markFailed to flag, and its kept id would dedupe the sweep forever.
+    const existing = await q.getJob(jobId);
+    if (existing && (await existing.isFailed())) await existing.remove();
+  }
+  await q.add("open", { kind: "open", sessionId }, { jobId });
 }
 
 export async function enqueueClose(positionId: string) {

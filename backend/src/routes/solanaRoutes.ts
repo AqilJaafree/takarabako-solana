@@ -35,7 +35,15 @@ solanaRouter.get("/solana/me", requireSession("full"), asyncHandler(async (_req,
     res.json({ ready: false, wallet: account.solanaWallet, musd: null, positions: [] });
     return;
   }
-  const musd = account.solanaWallet ? fromRaw(await balanceRaw(new PublicKey(account.solanaWallet))) : 0;
+  let musd: number | null = 0;
+  if (account.solanaWallet) {
+    try {
+      musd = fromRaw(await balanceRaw(new PublicKey(account.solanaWallet)));
+    } catch (err) {
+      console.error("[solana] /me mUSD balance read failed:", err instanceof Error ? err.message : err);
+      musd = null;
+    }
+  }
   const rows = await listPositions(account.privyUserId);
   res.json({ ready: true, wallet: account.solanaWallet, musd, positions: await Promise.all(rows.map((r) => viewPosition(r))) });
 }));

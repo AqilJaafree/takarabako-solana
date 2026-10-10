@@ -213,6 +213,7 @@ export interface PositionView {
   openSig: string | null;
   payoutSig: string | null;
   valueOut: number | null;
+  error: string | null;
   createdAt: Date;
 }
 
@@ -235,7 +236,7 @@ export async function viewPosition(row: SolPositionRow, d: Pick<PositionDeps, "p
     id: row.id, tier: row.tier, label: pairLabel(row.tier), status: row.status, musdIn: row.musdIn,
     valueUsd: row.status === "closed" ? row.valueOut : valueUsd, feesUsd, inRange,
     minBinId: row.minBinId, maxBinId: row.maxBinId, openSig: row.openSig, payoutSig: row.payoutSig,
-    valueOut: row.valueOut, createdAt: row.createdAt,
+    valueOut: row.valueOut, error: row.error, createdAt: row.createdAt,
   };
 }
 

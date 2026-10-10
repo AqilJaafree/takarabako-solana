@@ -252,13 +252,14 @@ export async function finalizeClose(id: string, close: { valueOut: number; payou
   });
 }
 
-/// Earn sessions that are over (finished, or abandoned for 30 min) with
+/// Earn sessions that are over (finished, or no note for 30 min) with
 /// confirmed Solana notes but no position yet — the sweep opens them.
 export async function earnSessionsWithoutPosition(): Promise<string[]> {
   const { rows } = await pool.query<{ id: string }>(
     `select s.id from deposit_sessions s
      where s.destination = 'sol_earn'
-       and (s.status = 'finished' or s.started_at < now() - interval '30 minutes')
+       and (s.status = 'finished'
+            or coalesce((select max(d.created_at) from deposits d where d.session_id = s.id), s.started_at) < now() - interval '30 minutes')
        and not exists (select 1 from solana_positions p where p.session_id = s.id)
        and exists (select 1 from deposits d where d.session_id = s.id and d.chain = 'sol' and d.status = 'confirmed')`,
   );

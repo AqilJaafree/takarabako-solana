@@ -75,6 +75,12 @@ export function SolanaCard({ refreshKey }: { refreshKey: number }) {
                     </>
                   )}
                 </span>
+                {p.error && p.status !== "closed" && (
+                  <>
+                    <br />
+                    <span className="small" style={{ color: "var(--bad)" }}>{p.error}</span>
+                  </>
+                )}
               </span>
               {p.status === "open" && (
                 <button className="btn btn-ghost small" disabled={closing === p.id} onClick={() => close(p)}>

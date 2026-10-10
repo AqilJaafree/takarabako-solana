@@ -60,3 +60,25 @@ test("no confirmed Solana notes → no position", async () => {
   await store.setSessionDestination(s.id, "u-sol", "sol_earn", "low");
   assert.equal(await store.createPositionForSession(s.id, "PAIR"), null);
 });
+
+test("sweep: an Earn session is abandoned after 30 min with no note, not 30 min after it started", async () => {
+  for (const [n, u] of ["u-sw1", "u-sw2"].entries()) {
+    await accounts.insertAccount({ privyUserId: u, email: `${u}@x.io`, privyWallet: `0x00000000000000000000000000000000000000c${n}`, boundAddress: `0x00000000000000000000000000000000000000d${n}`, ensName: null });
+  }
+  const mk = async (user: string) => {
+    const s = await history.openDepositSession(user);
+    await store.setSessionDestination(s.id, user, "sol_earn", "low");
+    const d = await accounts.createQueuedDeposit({ privyUserId: user, currency: "USD", amount: 2, sessionId: s.id });
+    await accounts.markDepositSendingSol(d.id, `sig-${d.id}`, 2, 100);
+    await accounts.markDepositConfirmed(d.id);
+    return { s, d };
+  };
+  const active = await mk("u-sw1"); // started long ago, but a note just landed
+  await pool.query("update deposit_sessions set started_at = now() - interval '2 hours' where id = $1", [active.s.id]);
+  const idle = await mk("u-sw2"); // last note 40 minutes ago
+  await pool.query("update deposit_sessions set started_at = now() - interval '2 hours' where id = $1", [idle.s.id]);
+  await pool.query("update deposits set created_at = now() - interval '40 minutes' where id = $1", [idle.d.id]);
+  const found = await store.earnSessionsWithoutPosition();
+  assert.ok(!found.includes(active.s.id), "still receiving notes");
+  assert.ok(found.includes(idle.s.id), "idle past 30 minutes");
+});

@@ -155,7 +155,7 @@ async function processSol(row: DepositRow, account: Account, destination: "sol_h
   }
   const outcome = await sol.confirm(signature, validHeight);
   if (outcome !== "confirmed") {
-    await clearDepositSend(row.id);
+    await clearDepositSend(row.id, signature);
     throw new Error(`mUSD mint ${signature} ${outcome} - sending a new one`);
   }
   await markDepositConfirmed(row.id);

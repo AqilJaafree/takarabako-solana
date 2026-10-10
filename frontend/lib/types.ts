@@ -47,6 +47,7 @@ export interface Deposit {
   amount: number;
   usdAmount: number | null;
   txHash: string | null;
+  chain?: "evm" | "sol";
   tkcashTxHash?: string | null; // the tkCASH receipt token minted for this note
   machineName?: string | null; // the kiosk that took it, when its signature checked out against ENS
   machineVerified?: boolean;
@@ -318,6 +319,7 @@ export interface SolanaPosition {
   openSig: string | null;
   payoutSig: string | null;
   valueOut: number | null;
+  error: string | null;
   createdAt: string;
 }
 

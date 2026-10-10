@@ -150,3 +150,13 @@ test("recoverInFlightDeposits picks only stale queued/sending rows", async () =>
   await pool.query("update deposits set status = 'queued' where id = $1", [fresh]);
   assert.equal(await recoverInFlightDeposits(), 1);
 });
+
+test("clearDepositSend only clears the signature that was checked", async () => {
+  const sid = await sessionWith("sol_hold");
+  const d = await accounts.createQueuedDeposit({ privyUserId: "u-q", currency: "USD", amount: 4, sessionId: sid });
+  await accounts.markDepositSendingSol(d.id, "sigA", 4, 100);
+  assert.equal(await accounts.clearDepositSend(d.id, "other"), false);
+  assert.equal((await accounts.getDeposit(d.id))?.txHash, "sigA");
+  assert.equal(await accounts.clearDepositSend(d.id, "sigA"), true);
+  assert.equal((await accounts.getDeposit(d.id))?.txHash, null);
+});

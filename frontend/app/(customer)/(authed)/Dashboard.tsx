@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { CashReceipts, Deposit, LiveEvent, Me } from "@/lib/types";
 import { useLiveEvents } from "@/lib/useLiveEvents";
 import { useRouter } from "next/navigation";
-import { apy, cash, SEPOLIA_TX, shortHex, timeAgo, usd, without } from "@/lib/format";
+import { apy, cash, SEPOLIA_TX, TX_URL, shortHex, timeAgo, usd, without } from "@/lib/format";
 import { SolanaCard } from "@/components/SolanaCard";
 import { RollingNumber } from "@/components/RollingNumber";
 import { TreasureStage } from "@/components/treasure/TreasureStage";
@@ -74,7 +74,7 @@ export function Dashboard({
         drop(e.depositId);
         if (e.chain !== "sol") setBalance(e.balance); // a Solana balance is mUSD, not the vault
         setFresh(e.depositId);
-        upsert({ id: e.depositId, amount: e.amount, currency: e.currency, usdAmount: e.usdAmount, txHash: e.txHash, status: "confirmed" });
+        upsert({ id: e.depositId, amount: e.amount, currency: e.currency, usdAmount: e.usdAmount, txHash: e.txHash, chain: e.chain, status: "confirmed" });
         deposit(e.depositId, { status: "confirmed", amount: e.amount, currency: e.currency, usdAmount: e.usdAmount, txHash: e.txHash });
         break;
       case "deposit.failed":
@@ -187,7 +187,7 @@ export function Dashboard({
                   <div className="small muted">
                     {timeAgo(d.createdAt)}
                     {d.txHash && (
-                      <> · <a href={SEPOLIA_TX(d.txHash)} target="_blank" rel="noreferrer" className="mono">{shortHex(d.txHash)}</a></>
+                      <> · <a href={TX_URL(d.txHash, d.chain ?? "evm")} target="_blank" rel="noreferrer" className="mono">{shortHex(d.txHash)}</a></>
                     )}
                     {d.tkcashTxHash && (
                       <> · <a href={SEPOLIA_TX(d.tkcashTxHash)} target="_blank" rel="noreferrer" title="tkCASH receipt token minted">tkCASH ✓</a></>

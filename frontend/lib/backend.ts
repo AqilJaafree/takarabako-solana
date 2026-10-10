@@ -17,9 +17,15 @@ export class BackendError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
   ) {
     super(message);
   }
+}
+
+function errorCode(body: unknown): string | undefined {
+  const code = (body as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : undefined;
 }
 
 function errorMessage(body: unknown, status: number): string {
@@ -49,7 +55,7 @@ export async function backendFetch<T>(
     throw new BackendError(502, "The Takarabako backend is unreachable");
   }
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new BackendError(res.status, errorMessage(body, res.status));
+  if (!res.ok) throw new BackendError(res.status, errorMessage(body, res.status), errorCode(body));
   return body as T;
 }
 
@@ -93,7 +99,8 @@ export async function relay(
 export function errorResponse(err: unknown, kind?: SessionKind): NextResponse {
   const status = err instanceof BackendError ? err.status : 500;
   const message = err instanceof Error ? err.message : "request failed";
-  const res = NextResponse.json({ error: message }, { status });
+  const code = err instanceof BackendError ? err.code : undefined;
+  const res = NextResponse.json(code ? { error: message, code } : { error: message }, { status });
   if (status === 401 && kind) clearSessionCookie(res, kind);
   return res;
 }
