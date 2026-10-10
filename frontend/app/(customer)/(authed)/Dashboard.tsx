@@ -6,6 +6,7 @@ import type { CashReceipts, Deposit, LiveEvent, Me } from "@/lib/types";
 import { useLiveEvents } from "@/lib/useLiveEvents";
 import { useRouter } from "next/navigation";
 import { apy, cash, SEPOLIA_TX, shortHex, timeAgo, usd, without } from "@/lib/format";
+import { SolanaCard } from "@/components/SolanaCard";
 import { RollingNumber } from "@/components/RollingNumber";
 import { TreasureStage } from "@/components/treasure/TreasureStage";
 import { useStageDirector } from "@/components/treasure/useStageDirector";
@@ -32,6 +33,7 @@ export function Dashboard({
   const [deposits, setDeposits] = useState(initialDeposits);
   const [pending, setPending] = useState<Record<string, Pending>>({});
   const [fresh, setFresh] = useState<string | null>(null);
+  const [solTick, setSolTick] = useState(0);
   const [failure, setFailure] = useState<string | null>(null);
   const { stage, deposit } = useStageDirector(
     me.balance > 0 ? `いらっしゃいませ! Your box holds ${usd(me.balance)}.` : "いらっしゃいませ! Insert a note at the kiosk and watch it land here.",
@@ -54,6 +56,7 @@ export function Dashboard({
   }, []);
 
   const onEvent = useCallback((e: LiveEvent) => {
+    if (e.type.startsWith("solana.") || (e.type === "deposit.confirmed" && e.chain === "sol")) setSolTick((n) => n + 1);
     const drop = (id: string) => setPending((p) => without(p, id));
     switch (e.type) {
       case "deposit.pending":
@@ -69,7 +72,7 @@ export function Dashboard({
         break;
       case "deposit.confirmed":
         drop(e.depositId);
-        setBalance(e.balance);
+        if (e.chain !== "sol") setBalance(e.balance); // a Solana balance is mUSD, not the vault
         setFresh(e.depositId);
         upsert({ id: e.depositId, amount: e.amount, currency: e.currency, usdAmount: e.usdAmount, txHash: e.txHash, status: "confirmed" });
         deposit(e.depositId, { status: "confirmed", amount: e.amount, currency: e.currency, usdAmount: e.usdAmount, txHash: e.txHash });
@@ -132,6 +135,8 @@ export function Dashboard({
         </div>
       )}
       {failure && <div className="notice error">{failure}</div>}
+
+      <SolanaCard refreshKey={solTick} />
 
       {receipts?.configured && <CashReceiptsCard r={receipts} balance={tkBalance} />}
 

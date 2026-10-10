@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { HistoryItem } from "@/lib/types";
-import { SEPOLIA_TX, apy, cash, shortHex, usd } from "@/lib/format";
+import { TX_URL, apy, cash, shortHex, usd } from "@/lib/format";
 
 const FILTERS = [
   { kind: null, label: "All" },
@@ -15,6 +15,14 @@ const FILTERS = [
 
 const ASSET_TEXT = { balance: "Box balance", tkcash: "tkCASH", position: "Yield position" } as const;
 
+const TIER_TEXT = { low: "Low", medium: "Medium", high: "High" } as const;
+
+function destinationText(item: Extract<HistoryItem, { kind: "deposit_session" }>) {
+  if (item.destination === "sol_hold") return "Solana · Hold";
+  if (item.destination === "sol_earn") return `Meteora · ${item.tier ? TIER_TEXT[item.tier] : "Earn"}`;
+  return "Ethereum vault";
+}
+
 const REFUSED_TEXT = {
   unsupported: "Note not supported — handed back",
   bad_condition: "Note in poor condition — handed back",
@@ -25,10 +33,10 @@ function when(iso: string) {
   return new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
-function TxLink({ hash }: { hash: string | null }) {
+function TxLink({ hash, chain = "evm" }: { hash: string | null; chain?: "evm" | "sol" }) {
   if (!hash) return null;
   return (
-    <a className="mono small" href={SEPOLIA_TX(hash)} target="_blank" rel="noreferrer">
+    <a className="mono small" href={TX_URL(hash, chain)} target="_blank" rel="noreferrer">
       {shortHex(hash)} ↗
     </a>
   );
@@ -76,7 +84,7 @@ export function HistoryList({ items }: { items: HistoryItem[] }) {
                       <b>Deposit · {cash(item.totalAmount, item.currency)}</b>
                       <br />
                       <span className="muted small">
-                        {when(item.at)} · {item.notes.length} note{item.notes.length === 1 ? "" : "s"}
+                        {when(item.at)} · {item.notes.length} note{item.notes.length === 1 ? "" : "s"} · {destinationText(item)}
                       </span>
                     </span>
                     <span className="amount" style={{ color: "var(--gold)" }}>
@@ -91,7 +99,7 @@ export function HistoryList({ items }: { items: HistoryItem[] }) {
                           <span className="small">
                             {n.status === "confirmed" ? (
                               <>
-                                {usd(n.usdAmount)} · <TxLink hash={n.txHash} />
+                                {usd(n.usdAmount)} · <TxLink hash={n.txHash} chain={n.chain} />
                                 {n.tkcashTxHash && (
                                   <>
                                     {" "}· tkCASH <TxLink hash={n.tkcashTxHash} />
@@ -158,7 +166,7 @@ export function HistoryList({ items }: { items: HistoryItem[] }) {
                     <span style={{ textAlign: "right" }}>
                       <span className="amount">{usd(item.amountUsd)}</span>
                       <br />
-                      <TxLink hash={item.txHash} />
+                      <TxLink hash={item.txHash} chain={item.chain} />
                     </span>
                   </div>
                   {item.rationale && <p className="speech small" style={{ marginBottom: 0 }}>{item.rationale}</p>}

@@ -122,7 +122,18 @@ export interface ChainEvent {
   triggeredAt: string;
 }
 
+export interface SolanaOps {
+  ready: boolean;
+  treasury?: string;
+  treasurySol?: number;
+  lowSol?: boolean;
+  musdSupply?: number;
+  pool?: { pair: string; activeId: number; binStep: number; solPriceUsd: number };
+  positions?: { open: number; opening: number; closing: number; tvlUsd: number };
+}
+
 export interface OpsData {
+  solana: SolanaOps | { error: string };
   summary: Summary | { error: string };
   holders: Holders | { error: string };
   flows: Flows | { error: string };

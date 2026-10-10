@@ -124,6 +124,22 @@ export function OpsDashboard({ initial }: { initial: OpsData }) {
       </div>
 
       <section className="card">
+        <h2>Solana · Meteora</h2>
+        {ok(data.solana) && data.solana.ready ? (
+          <div className="ops-tiles">
+            <Tile label="Treasury SOL" value={data.solana.treasurySol!.toFixed(3)} tone={data.solana.lowSol ? "bad" : "ok"} sub={data.solana.lowSol ? "below floor — Solana destinations are off" : undefined} />
+            <Tile label="mUSD supply" value={usd(data.solana.musdSupply!)} />
+            <Tile label="SOL price (pool)" value={usd(data.solana.pool!.solPriceUsd)} sub={`bin ${data.solana.pool!.activeId} · step ${data.solana.pool!.binStep}`} />
+            <Tile label="Earn positions" value={String(data.solana.positions!.open)} sub={`${usd(data.solana.positions!.tvlUsd)} · ${data.solana.positions!.opening} opening · ${data.solana.positions!.closing} closing`} />
+          </div>
+        ) : ok(data.solana) ? (
+          <p className="muted small">Solana isn&apos;t configured (set SOLANA_TREASURY_KEY, MUSD_MINT, DLMM_PAIR).</p>
+        ) : (
+          <PanelError error={data.solana.error} />
+        )}
+      </section>
+
+      <section className="card">
         <div className="spread">
           <h2>Liquidity flows</h2>
           {ok(data.flows) && (

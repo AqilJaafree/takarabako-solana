@@ -15,6 +15,8 @@ export function shortHex(hex: string, head = 6, tail = 4): string {
   return hex.length <= head + tail + 1 ? hex : `${hex.slice(0, head)}…${hex.slice(-tail)}`;
 }
 
+export const shortAddr = (a: string) => (a.length <= 9 ? a : `${a.slice(0, 4)}…${a.slice(-4)}`);
+
 export const SEPOLIA_TX = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 export const SOLSCAN_TX = (sig: string) => `https://solscan.io/tx/${sig}?cluster=devnet`;
 export const SOLSCAN_ACCOUNT = (addr: string) => `https://solscan.io/account/${addr}?cluster=devnet`;
