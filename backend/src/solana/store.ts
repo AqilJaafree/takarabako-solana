@@ -1,4 +1,5 @@
 import { pool } from "../db.js";
+import { recordYieldEvent } from "../history.js";
 import { isSolTier, type SolTier } from "./tiers.js";
 
 /// Postgres side of the Solana destination: where a visit's cash goes, and
@@ -172,6 +173,73 @@ export async function updatePosition(id: string, patch: Partial<Omit<SolPosition
   if (!keys.length) return;
   const sets = keys.map((k, i) => `${FIELDS[k]} = $${i + 2}`);
   await pool.query(`update solana_positions set ${sets.join(", ")} where id = $1`, [id, ...keys.map((k) => patch[k] ?? null)]);
+}
+
+/// Writes `patch` only while `field` still equals `expected` (null = unset).
+/// False if another run changed it first — used so a stored signature is
+/// never overwritten by a second send, nor cleared after a newer one.
+export async function updatePositionIf<K extends "openSig" | "swapSig" | "payoutSig">(
+  id: string,
+  field: K,
+  expected: string | null,
+  patch: Partial<Omit<SolPositionRow, "id">>,
+): Promise<boolean> {
+  const keys = Object.keys(patch) as (keyof Omit<SolPositionRow, "id">)[];
+  if (!keys.length) return false;
+  const sets = keys.map((k, i) => `${FIELDS[k]} = $${i + 3}`);
+  const { rowCount } = await pool.query(`update solana_positions set ${sets.join(", ")} where id = $1 and ${FIELDS[field]} is not distinct from $2::text`, [
+    id,
+    expected,
+    ...keys.map((k) => patch[k] ?? null),
+  ]);
+  return rowCount === 1;
+}
+
+type YieldEvent = Parameters<typeof recordYieldEvent>[0];
+
+/// Runs `fn` in one transaction on a dedicated client.
+async function inTransaction<T>(fn: (c: import("pg").PoolClient) => Promise<T>): Promise<T> {
+  const c = await pool.connect();
+  try {
+    await c.query("begin");
+    const out = await fn(c);
+    await c.query("commit");
+    return out;
+  } catch (err) {
+    await c.query("rollback").catch(() => {});
+    throw err;
+  } finally {
+    c.release();
+  }
+}
+
+/// 'opening' → 'open' and its History row, atomically. False (and no
+/// History row) if the position wasn't 'opening' any more.
+export async function finalizeOpen(id: string, event: YieldEvent): Promise<boolean> {
+  return inTransaction(async (c) => {
+    const { rowCount } = await c.query(
+      "update solana_positions set status = 'open', opened_at = now(), error = null where id = $1 and status = 'opening'",
+      [id],
+    );
+    if (rowCount !== 1) return false;
+    await recordYieldEvent(event, c);
+    return true;
+  });
+}
+
+/// 'closing' → 'closed' (value, payout signature) and its History row,
+/// atomically. False (and no History row) if it wasn't 'closing' any more.
+export async function finalizeClose(id: string, close: { valueOut: number; payoutSig: string }, event: YieldEvent): Promise<boolean> {
+  return inTransaction(async (c) => {
+    const { rowCount } = await c.query(
+      `update solana_positions set status = 'closed', value_out = $2, payout_sig = $3, closed_at = now(), error = null
+       where id = $1 and status = 'closing'`,
+      [id, close.valueOut, close.payoutSig],
+    );
+    if (rowCount !== 1) return false;
+    await recordYieldEvent(event, c);
+    return true;
+  });
 }
 
 /// Earn sessions that are over (finished, or abandoned for 30 min) with

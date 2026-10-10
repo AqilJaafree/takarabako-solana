@@ -26,7 +26,7 @@ export async function usedToday(privyUserId: string): Promise<number> {
     `select
        (select coalesce(sum(usd_amount), 0) from deposits where privy_user_id = $1 and created_at >= $2 and status <> 'failed')
      + (select coalesce(sum(gross_usd), 0) from withdrawals where privy_user_id = $1 and created_at >= $2)
-     + (select coalesce(sum(amount_usd), 0) from yield_events where privy_user_id = $1 and action = 'open' and created_at >= $2)
+     + (select coalesce(sum(amount_usd), 0) from yield_events where privy_user_id = $1 and action = 'open' and chain = 'evm' and created_at >= $2)
      + (select coalesce(sum(amount_usd), 0) from transfers where from_user = $1 and created_at >= $2) as used`,
     [privyUserId, startOfUtcDay()],
   );

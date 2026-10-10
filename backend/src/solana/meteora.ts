@@ -1,5 +1,5 @@
 import { DLMM } from "./dlmmCjs.js";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey, type TokenBalance } from "@solana/web3.js";
 import { NATIVE_MINT } from "@solana/spl-token";
 import BN from "bn.js";
 import { config } from "../config.js";
@@ -97,7 +97,8 @@ export async function removeAll(position: string, lowerBinId: number, upperBinId
 }
 
 /// Signs (doesn't send) a swap of `solRaw` SOL into mUSD through the pair.
-/// `outRaw` is the quote's minimum — what the treasury is sure to receive.
+/// `outRaw` is the quote's expected output — an estimate; once the swap
+/// confirms, swapReceivedRaw() reads what actually arrived.
 export async function prepareSwapSolToMusd(solRaw: bigint): Promise<{ signed: SignedTx; outRaw: bigint }> {
   const p = await pair();
   const musdIsX = p.tokenX.publicKey.equals(musdMint());
@@ -113,7 +114,7 @@ export async function prepareSwapSolToMusd(solRaw: bigint): Promise<{ signed: Si
     user: treasury().publicKey,
     binArraysPubkey: quote.binArraysPubkey,
   });
-  return { signed: await signTx(tx), outRaw: BigInt(quote.minOutAmount.toString()) };
+  return { signed: await signTx(tx), outRaw: BigInt(quote.outAmount.toString()) };
 }
 
 /// Devnet only (simulator, setup): swap mUSD → SOL.
@@ -133,4 +134,21 @@ export async function swapMusdToSol(musdRaw: bigint): Promise<string> {
     binArraysPubkey: quote.binArraysPubkey,
   });
   return sendAndConfirm(tx);
+}
+
+/// mUSD the treasury's token account gained in a confirmed transaction
+/// (post - pre token balance). Null if the transaction can't be fetched or
+/// doesn't show the treasury's mUSD balance.
+export async function swapReceivedRaw(signature: string): Promise<bigint | null> {
+  const tx = await connection.getTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: "confirmed" });
+  if (!tx?.meta?.postTokenBalances) return null;
+  const mint = musdMint().toBase58();
+  const owner = treasury().publicKey.toBase58();
+  const amount = (list: TokenBalance[] | null | undefined) =>
+    list?.find((b) => b.mint === mint && b.owner === owner)?.uiTokenAmount.amount;
+  const post = amount(tx.meta.postTokenBalances);
+  if (post == null) return null;
+  const pre = amount(tx.meta.preTokenBalances) ?? "0"; // account created in this tx
+  const received = BigInt(post) - BigInt(pre);
+  return received >= 0n ? received : null;
 }

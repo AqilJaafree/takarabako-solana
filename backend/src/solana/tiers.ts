@@ -13,6 +13,14 @@ export const SOL_TIERS: Record<SolTier, { label: string; strategy: StrategyType;
   high: { label: "High", strategy: StrategyType.BidAsk, width: 10, blurb: "A tight band right at the price — most fees, most movement." },
 };
 
+/// Every width must stay below the SDK's DEFAULT_BIN_PER_POSITION (70).
+/// removeLiquidity splits a range into 70-bin chunks and sends one
+/// transaction per chunk; positions.ts closePosition relies on removal being
+/// ONE atomic transaction (the position is either untouched or fully gone),
+/// so re-reading its amounts before a retried remove can't miss a half that
+/// already came out. Checked in test/solanaTiers.test.ts.
+export const MAX_TIER_WIDTH = 69;
+
 export const isSolTier = (v: unknown): v is SolTier => v === "low" || v === "medium" || v === "high";
 
 /// Bin range for a one-sided mUSD deposit. Token-Y liquidity has to sit

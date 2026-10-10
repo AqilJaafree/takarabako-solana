@@ -16,6 +16,7 @@ export interface ReceiptNote {
   machineName: string | null; // the kiosk that took it (ENS name), when its signature checked out
   machineVerified: boolean;
   status: "queued" | "sending" | "confirmed" | "failed";
+  chain: "evm" | "sol";
   at: Date;
 }
 
@@ -30,6 +31,9 @@ export interface Receipt {
   currency: string;
   totalUsdConfirmed: number;
   settled: boolean; // no note still queued or sending
+  destination: "evm" | "sol_hold" | "sol_earn";
+  tier: string | null;
+  solPosition: { id: string; status: string; openSig: string | null } | null; // Earn only
 }
 
 export type HistoryItem =
@@ -58,6 +62,7 @@ export type HistoryItem =
       rationale: string | null;
       ensName: string | null;
       txHash: string | null;
+      chain: "evm" | "sol";
     }
   | { kind: "refused"; at: Date; id: string; reason: RefusedReason; sessionId: string | null }
   | {
@@ -113,9 +118,20 @@ export async function markReceiptEmailed(id: string): Promise<boolean> {
   return rowCount === 1;
 }
 
-function buildReceipt(session: { id: string; privyUserId: string; status: "open" | "finished"; startedAt: Date; finishedAt: Date | null }, notes: ReceiptNote[]): Receipt {
+type SessionRow = {
+  id: string;
+  privyUserId: string;
+  status: "open" | "finished";
+  startedAt: Date;
+  finishedAt: Date | null;
+  destination: "evm" | "sol_hold" | "sol_earn";
+  tier: string | null;
+};
+
+function buildReceipt(session: SessionRow, notes: ReceiptNote[], solPosition: Receipt["solPosition"] = null): Receipt {
   return {
     ...session,
+    solPosition,
     notes,
     totalAmount: notes.reduce((s, n) => s + n.amount, 0),
     currency: notes[0]?.currency ?? "MYR",
@@ -124,18 +140,22 @@ function buildReceipt(session: { id: string; privyUserId: string; status: "open"
   };
 }
 
-const NOTE_COLUMNS = `id, amount::float as amount, currency, usd_amount::float as "usdAmount", tx_hash as "txHash", tkcash_tx_hash as "tkcashTxHash", machine_name as "machineName", machine_verified as "machineVerified", status,
+const NOTE_COLUMNS = `id, amount::float as amount, currency, usd_amount::float as "usdAmount", tx_hash as "txHash", tkcash_tx_hash as "tkcashTxHash", machine_name as "machineName", machine_verified as "machineVerified", status, chain,
   created_at as at, session_id as "sessionId"`;
 
 export async function getReceipt(id: string): Promise<Receipt | null> {
   const { rows: sessions } = await pool.query(
-    `select id, privy_user_id as "privyUserId", status, started_at as "startedAt", finished_at as "finishedAt"
+    `select id, privy_user_id as "privyUserId", status, started_at as "startedAt", finished_at as "finishedAt", destination, tier
      from deposit_sessions where id = $1`,
     [id],
   );
   if (!sessions[0]) return null;
   const { rows: notes } = await pool.query(`select ${NOTE_COLUMNS} from deposits where session_id = $1 order by created_at`, [id]);
-  return buildReceipt(sessions[0], notes);
+  const { rows: pos } = await pool.query(
+    `select id, status, open_sig as "openSig" from solana_positions where session_id = $1`,
+    [id],
+  );
+  return buildReceipt(sessions[0], notes, pos[0] ?? null);
 }
 
 // ---- other history rows ------------------------------------------------
@@ -157,6 +177,9 @@ export async function recordWithdrawal(w: {
   );
 }
 
+/// Anything with pg's query(): the pool, or a client inside a transaction.
+export type Queryable = { query: (text: string, values?: unknown[]) => Promise<unknown> };
+
 export async function recordYieldEvent(y: {
   privyUserId: string;
   action: "open" | "close";
@@ -167,11 +190,12 @@ export async function recordYieldEvent(y: {
   rationale: string | null;
   ensName: string | null;
   txHash: string | null;
-}) {
-  await pool.query(
-    `insert into yield_events (id, privy_user_id, action, risk_tier, pair, apy_bps, amount_usd, rationale, ens_name, tx_hash)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-    [crypto.randomUUID(), y.privyUserId, y.action, y.riskTier, y.pair, y.apyBps, y.amountUsd, y.rationale, y.ensName, y.txHash],
+  chain?: "evm" | "sol";
+}, db: Queryable = pool) {
+  await db.query(
+    `insert into yield_events (id, privy_user_id, action, risk_tier, pair, apy_bps, amount_usd, rationale, ens_name, tx_hash, chain)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [crypto.randomUUID(), y.privyUserId, y.action, y.riskTier, y.pair, y.apyBps, y.amountUsd, y.rationale, y.ensName, y.txHash, y.chain ?? "evm"],
   );
 }
 
@@ -196,7 +220,7 @@ export async function listHistory(privyUserId: string, opts: { limit: number; ki
   if (want("deposit_session")) {
     // Sessions with at least one note; an empty visit isn't worth listing.
     const { rows: sessions } = await pool.query(
-      `select s.id, s.privy_user_id as "privyUserId", s.status, s.started_at as "startedAt", s.finished_at as "finishedAt"
+      `select s.id, s.privy_user_id as "privyUserId", s.status, s.started_at as "startedAt", s.finished_at as "finishedAt", s.destination, s.tier
        from deposit_sessions s
        where s.privy_user_id = $1 and exists (select 1 from deposits d where d.session_id = s.id)
        order by s.started_at desc limit $2`,
@@ -227,7 +251,7 @@ export async function listHistory(privyUserId: string, opts: { limit: number; ki
   if (want("yield")) {
     const { rows } = await pool.query(
       `select id, action, risk_tier as "riskTier", pair, apy_bps as "apyBps", amount_usd::float as "amountUsd", rationale,
-              ens_name as "ensName", tx_hash as "txHash", created_at as at
+              ens_name as "ensName", tx_hash as "txHash", chain, created_at as at
        from yield_events where privy_user_id = $1 order by created_at desc limit $2`,
       [privyUserId, limit],
     );
