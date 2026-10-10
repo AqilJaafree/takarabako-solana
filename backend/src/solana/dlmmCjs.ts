@@ -9,7 +9,7 @@ import type * as DlmmTypes from "@meteora-ag/dlmm";
 /// is no `.default` at runtime.
 const mod = createRequire(import.meta.url)("@meteora-ag/dlmm");
 
-export const DLMM = mod as typeof DlmmTypes.default;
-export type DLMM = DlmmTypes.default;
+export const DLMM = mod as typeof DlmmTypes.default.default;
+export type DLMM = InstanceType<typeof DlmmTypes.default.default>;
 export const StrategyType = (mod as typeof DlmmTypes).StrategyType;
 export type StrategyType = DlmmTypes.StrategyType;
