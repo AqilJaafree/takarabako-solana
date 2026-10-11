@@ -23,6 +23,8 @@ import { migrate } from "./db.js";
 import { solanaRouter } from "./routes/solanaRoutes.js";
 import { startSolanaWorker } from "./solana/jobs.js";
 import { startSolanaSimulator } from "./solana/simulator.js";
+import { startFundingSweep } from "./solana/webEarn.js";
+import { solanaReady } from "./solana/client.js";
 import { startDepositWorker } from "./depositQueue.js";
 
 const app = express();
@@ -82,6 +84,7 @@ startDailyReports();
 startAquaSimulator();
 startDeedWatcher();
 startSolanaWorker();
+if (solanaReady) startFundingSweep();
 startSolanaSimulator();
 
 app.listen(config.port, () => {

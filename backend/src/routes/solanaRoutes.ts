@@ -12,6 +12,7 @@ import { driftPct, solMarketPrice } from "../solana/marketPrice.js";
 import { getPosition, listLivePositions, listPositions, markClosing } from "../solana/store.js";
 import { viewPosition } from "../solana/positions.js";
 import { enqueueClose } from "../solana/jobs.js";
+import { prepareWebEarn, submitWebEarn } from "../solana/webEarn.js";
 
 export const solanaRouter = Router();
 
@@ -63,6 +64,32 @@ solanaRouter.post("/solana/positions/:id/close", requireSession("full"), asyncHa
   }
   await enqueueClose(row.id);
   res.status(202).json({ id: row.id, status: "closing" });
+}));
+
+/// POST /solana/earn/prepare { amount, tier } — Earn from mUSD the customer
+/// holds: returns the transfer for them to approve in their wallet.
+solanaRouter.post("/solana/earn/prepare", requireSession("full"), asyncHandler(async (req, res) => {
+  const session: Session = res.locals.session;
+  const available = await solanaAvailable();
+  if (!available.ok) {
+    res.status(503).json({ error: `Solana is unavailable right now (${available.reason})`, code: "solana_unavailable" });
+    return;
+  }
+  const account = await findByPrivyUserId(session.privyUserId);
+  if (!account) {
+    res.status(404).json({ error: "unknown account" });
+    return;
+  }
+  const reply = await prepareWebEarn(account, req.body?.amount, req.body?.tier);
+  res.status(reply.status).json(reply.body);
+}));
+
+/// POST /solana/earn/submit { id, signedTx } — the approved transfer; the
+/// position opens once it confirms (follow it on GET /solana/me).
+solanaRouter.post("/solana/earn/submit", requireSession("full"), asyncHandler(async (req, res) => {
+  const session: Session = res.locals.session;
+  const reply = await submitWebEarn(session.privyUserId, String(req.body?.id ?? ""), req.body?.signedTx);
+  res.status(reply.status).json(reply.body);
 }));
 
 /// GET /dashboard/solana — the /ops Solana card.
