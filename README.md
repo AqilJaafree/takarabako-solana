@@ -188,6 +188,9 @@ the one it built before co-signing and sending it. Once it confirms, the same
 queue that serves the kiosk opens the position. This counts toward the daily
 limit; kiosk Earn doesn't (its notes were already counted). An approval not
 given within 10 minutes is dropped, and nothing moves.
+If the position can never open (three recovery rounds of retries fail, and no
+open transaction was ever sent), the treasury sends the mUSD back to the
+customer's wallet and the position shows as refunded.
 
 `/ops` has a Solana panel: treasury SOL (Solana is switched off at the kiosk
 below `SOLANA_MIN_TREASURY_SOL`), mUSD supply, the pool's SOL price next to
