@@ -254,3 +254,42 @@ test("submit: a balance that dropped since prepare is refused before the treasur
   assert.deepEqual([row?.status, row?.error, row?.fundingSig], ["failed", "your mUSD balance changed — prepare again", null]);
   assert.equal(calls.broadcast, 0);
 });
+
+test("prepare: refuses amounts below the minimum", async () => {
+  const { deps } = fakeDeps();
+  const res = await webEarn.prepareWebEarn(account, 0.009, "low", deps);
+  assert.deepEqual([res.status, (res.body as { error: string }).error], [400, "the minimum is 0.01 mUSD"]);
+  assert.equal(webEarn.MIN_WEB_EARN_MUSD, 0.01);
+  assert.equal((await webEarn.prepareWebEarn(account, 0.01, "low", deps)).status, 200);
+});
+
+test("cancel: frees the daily limit", async () => {
+  const { usedToday } = await import("../src/limits.js");
+  const { deps } = fakeDeps();
+  const before = await usedToday("u-e");
+  const p = (await webEarn.prepareWebEarn(account, 5, "low", deps)).body as { id: string };
+  assert.ok(Math.abs((await usedToday("u-e")) - before - 5) < 1e-6);
+  const res = await webEarn.cancelWebEarn("u-e", p.id);
+  assert.deepEqual([res.status, res.body], [200, { id: p.id, status: "failed" }]);
+  assert.ok(Math.abs((await usedToday("u-e")) - before) < 1e-6);
+  const row = await store.getPosition(p.id);
+  assert.deepEqual([row?.status, row?.error], ["failed", "cancelled"]);
+  assert.equal((await webEarn.cancelWebEarn("u-e", p.id)).status, 409); // already failed
+});
+
+test("cancel: refused once a signature is stored, and for someone else's row", async () => {
+  const pending = fakeDeps({ outcome: "throw" });
+  const p = (await webEarn.prepareWebEarn(account, 1, "low", pending.deps)).body as { id: string; tx: string };
+  assert.equal((await webEarn.cancelWebEarn("someone-else", p.id)).status, 404);
+  assert.equal((await webEarn.cancelWebEarn("u-e", crypto.randomUUID())).status, 404);
+  assert.equal((await webEarn.submitWebEarn("u-e", p.id, sign(p.tx), pending.deps)).status, 202);
+  assert.equal((await webEarn.cancelWebEarn("u-e", p.id)).status, 409);
+  assert.equal((await store.getPosition(p.id))?.status, "funding");
+  const kiosk = await web(); // a web row of another user
+  assert.equal((await webEarn.cancelWebEarn("u-e", kiosk.id)).status, 404);
+});
+
+test("submit and cancel: a malformed id is 404, not a database error", async () => {
+  assert.equal((await webEarn.submitWebEarn("u-e", "not-a-uuid", "x")).status, 404);
+  assert.equal((await webEarn.cancelWebEarn("u-e", "not-a-uuid")).status, 404);
+});

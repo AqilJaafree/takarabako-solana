@@ -12,12 +12,12 @@ const toBase64 = (bytes: Uint8Array) => btoa(Array.from(bytes, (b) => String.fro
 /// base64; the backend checks it, co-signs as fee payer and sends it.
 export function useSolanaSign() {
   const { ready, authenticated, login } = usePrivy();
-  const { wallets } = useWallets();
+  const { wallets, ready: walletsReady } = useWallets();
   const { signTransaction } = useSignTransaction();
 
   return useCallback(
     async (txBase64: string, address: string): Promise<string> => {
-      if (!ready) throw new Error("wallet is still loading — try again in a moment");
+      if (!ready || !walletsReady) throw new Error("wallet is still loading — try again in a moment");
       if (!authenticated) {
         login();
         throw new Error("sign in to your wallet, then press Earn again");
@@ -27,6 +27,6 @@ export function useSolanaSign() {
       const { signedTransaction } = await signTransaction({ transaction: toBytes(txBase64), wallet, chain: "solana:devnet" });
       return toBase64(signedTransaction);
     },
-    [ready, authenticated, login, wallets, signTransaction],
+    [ready, walletsReady, authenticated, login, wallets, signTransaction],
   );
 }

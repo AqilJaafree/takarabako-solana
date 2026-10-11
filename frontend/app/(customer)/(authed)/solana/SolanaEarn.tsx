@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SolTier, SolanaMe, SolanaStatus, WebEarnPrepared, WebEarnSubmitted } from "@/lib/types";
 import { usd } from "@/lib/format";
 import { useSolanaSign } from "@/lib/useSolanaSign";
 import { SolanaCard } from "@/components/SolanaCard";
+
+/// Smallest Earn the backend accepts (MIN_WEB_EARN_MUSD).
+const MIN_EARN = 0.01;
+const AMOUNT_FORMAT = /^\d+([.,]\d{1,6})?$/;
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -23,10 +27,13 @@ export function SolanaEarn({ leftToday }: { leftToday: number | null }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    fetch("/api/kiosk/solana", { cache: "no-store" }).then((r) => r.json()).then(setStatus).catch(() => setStatus(null));
+    fetch("/api/kiosk/solana", { cache: "no-store" }).then((r) => r.json()).then(setStatus).catch(() => setStatus(null)).finally(() => setLoaded(true));
   }, []);
+  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
   useEffect(() => {
     fetch("/api/solana/me", { cache: "no-store" })
       .then((r) => (r.ok ? (r.json() as Promise<SolanaMe>) : null))
@@ -36,10 +43,11 @@ export function SolanaEarn({ leftToday }: { leftToday: number | null }) {
 
   // After a submit, follow the position from opening to open for a minute.
   function follow() {
+    if (timer.current) clearInterval(timer.current);
     let n = 0;
-    const t = setInterval(() => {
+    timer.current = setInterval(() => {
       setRefreshKey((k) => k + 1);
-      if (++n >= 20) clearInterval(t);
+      if (++n >= 20 && timer.current) clearInterval(timer.current);
     }, 3_000);
   }
 
@@ -48,8 +56,15 @@ export function SolanaEarn({ leftToday }: { leftToday: number | null }) {
     setBusy(true);
     setMessage(null);
     try {
-      const prepared = await post<WebEarnPrepared>("/api/solana/earn/prepare", { amount: Number(amount), tier });
-      const signedTx = await sign(prepared.tx, me.wallet);
+      const prepared = await post<WebEarnPrepared>("/api/solana/earn/prepare", { amount: value, tier });
+      let signedTx: string;
+      try {
+        signedTx = await sign(prepared.tx, me.wallet);
+      } catch {
+        await post("/api/solana/earn/cancel", { id: prepared.id }).catch(() => {}); // frees the daily limit
+        setMessage({ kind: "error", text: "Cancelled — nothing moved." });
+        return;
+      }
       const done = await post<WebEarnSubmitted>("/api/solana/earn/submit", { id: prepared.id, signedTx });
       setMessage({
         kind: "ok",
@@ -65,12 +80,25 @@ export function SolanaEarn({ leftToday }: { leftToday: number | null }) {
     }
   }
 
+  if (!loaded) return <p className="muted">Loading…</p>;
   if (!status?.ready) return <p className="muted">Solana isn&apos;t available right now.</p>;
   if (me && !me.wallet) return <p className="muted">You don&apos;t have a Solana wallet yet — choose Solana at a kiosk first.</p>;
 
   const held = me?.musd ?? 0;
-  const value = Number(amount);
-  const valid = value > 0 && value <= held && (leftToday == null || value <= leftToday);
+  const formatOk = AMOUNT_FORMAT.test(amount);
+  const value = formatOk ? Number(amount.replace(",", ".")) : NaN;
+  const hint = !amount
+    ? null
+    : !formatOk
+      ? "Enter up to 6 decimals"
+      : value < MIN_EARN
+        ? "Minimum 0.01 mUSD"
+        : value > held
+          ? "More than you hold"
+          : leftToday != null && value > leftToday
+            ? "Over today's limit"
+            : null;
+  const valid = formatOk && !hint;
   return (
     <>
       <section className="card">
@@ -92,6 +120,7 @@ export function SolanaEarn({ leftToday }: { leftToday: number | null }) {
             Max
           </button>
         </div>
+        {hint && <p className="muted small" style={{ marginTop: 6 }}>{hint}</p>}
         <div className="choice-grid" style={{ marginTop: 12 }}>
           {status.tiers.map((t) => (
             <button

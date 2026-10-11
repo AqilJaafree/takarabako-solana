@@ -56,6 +56,10 @@ export interface Reply {
   body: unknown;
 }
 
+/// Smallest amount a web Earn may move.
+export const MIN_WEB_EARN_MUSD = 0.01;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APPROVAL_WINDOW_MS = 10 * 60_000;
 
 const overLimit = (leftUsd: number): Reply => ({
@@ -68,6 +72,7 @@ export async function prepareWebEarn(account: Account, amount: unknown, tier: un
   if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0 || toRaw(amount) <= 0n || Math.abs(amount * 1e6 - Math.round(amount * 1e6)) > 1e-6) {
     return { status: 400, body: { error: "enter an amount of mUSD (up to 6 decimals)" } };
   }
+  if (amount < MIN_WEB_EARN_MUSD) return { status: 400, body: { error: `the minimum is ${MIN_WEB_EARN_MUSD} mUSD` } };
   if (!account.solanaWallet) return { status: 400, body: { error: "You don't have a Solana wallet yet — choose Solana at a kiosk first." } };
   const owner = new PublicKey(account.solanaWallet);
 
@@ -107,7 +112,7 @@ export async function prepareWebEarn(account: Account, amount: unknown, tier: un
 }
 
 export async function submitWebEarn(privyUserId: string, id: string, signedTx: unknown, d: WebEarnDeps = liveWebEarnDeps): Promise<Reply> {
-  const row = await getPosition(id); // fresh read: the 409 below must see a signature stored a moment ago
+  const row = UUID.test(id) ? await getPosition(id) : null; // fresh read: the 409 below must see a signature stored a moment ago
   if (!row || row.privyUserId !== privyUserId || row.source !== "web") return { status: 404, body: { error: "position not found" } };
   if (row.status !== "funding" || row.fundingSig) return { status: 409, body: { error: `position is ${row.status}`, code: "already_submitted" } };
   const account = await findByPrivyUserId(privyUserId);
@@ -139,6 +144,15 @@ export async function submitWebEarn(privyUserId: string, id: string, signedTx: u
     console.error(`[solana] web earn ${id}: ${err instanceof Error ? err.message : err}`);
     return { status: 202, body: { id, status: "funding" } };
   }
+}
+
+/// Cancels an Earn the customer didn't approve (e.g. rejected in their wallet),
+/// freeing its share of the daily limit. Only while no signature is stored.
+export async function cancelWebEarn(privyUserId: string, id: string): Promise<Reply> {
+  const row = UUID.test(id) ? await getPosition(id) : null;
+  if (!row || row.privyUserId !== privyUserId || row.source !== "web") return { status: 404, body: { error: "position not found" } };
+  if (!(await failFunding(id, "cancelled", null))) return { status: 409, body: { error: `position is ${row.status}`, code: "not_cancellable" } };
+  return { status: 200, body: { id, status: "failed" } };
 }
 
 /// Confirms a stored funding signature and moves the row on. Throws if the

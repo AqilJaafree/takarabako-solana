@@ -12,7 +12,7 @@ import { driftPct, solMarketPrice } from "../solana/marketPrice.js";
 import { getPosition, listLivePositions, listPositions, markClosing } from "../solana/store.js";
 import { viewPosition } from "../solana/positions.js";
 import { enqueueClose } from "../solana/jobs.js";
-import { prepareWebEarn, submitWebEarn } from "../solana/webEarn.js";
+import { cancelWebEarn, prepareWebEarn, submitWebEarn } from "../solana/webEarn.js";
 
 export const solanaRouter = Router();
 
@@ -89,6 +89,14 @@ solanaRouter.post("/solana/earn/prepare", requireSession("full"), asyncHandler(a
 solanaRouter.post("/solana/earn/submit", requireSession("full"), asyncHandler(async (req, res) => {
   const session: Session = res.locals.session;
   const reply = await submitWebEarn(session.privyUserId, String(req.body?.id ?? ""), req.body?.signedTx);
+  res.status(reply.status).json(reply.body);
+}));
+
+/// POST /solana/earn/cancel { id } — drop an Earn that wasn't approved; frees
+/// its share of the daily limit.
+solanaRouter.post("/solana/earn/cancel", requireSession("full"), asyncHandler(async (req, res) => {
+  const session: Session = res.locals.session;
+  const reply = await cancelWebEarn(session.privyUserId, String(req.body?.id ?? ""));
   res.status(reply.status).json(reply.body);
 }));
 
