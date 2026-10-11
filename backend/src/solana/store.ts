@@ -64,7 +64,7 @@ export async function sessionSettled(sessionId: string): Promise<boolean> {
 
 // ---- positions ---------------------------------------------------------
 
-export type PositionStatus = "opening" | "open" | "closing" | "closed" | "failed";
+export type PositionStatus = "funding" | "opening" | "open" | "closing" | "closed" | "failed";
 
 export interface SolPositionRow {
   id: string;
@@ -93,6 +93,11 @@ export interface SolPositionRow {
   createdAt: Date;
   openedAt: Date | null;
   closedAt: Date | null;
+  source: "kiosk" | "web";
+  fundingSig: string | null;
+  fundingValidHeight: number | null;
+  fundingMessageHash: string | null;
+  fundingConfirmedAt: Date | null;
 }
 
 const FIELDS: Record<keyof SolPositionRow, string> = {
@@ -122,8 +127,13 @@ const FIELDS: Record<keyof SolPositionRow, string> = {
   createdAt: "created_at",
   openedAt: "opened_at",
   closedAt: "closed_at",
+  source: "source",
+  fundingSig: "funding_sig",
+  fundingValidHeight: "funding_valid_height",
+  fundingMessageHash: "funding_message_hash",
+  fundingConfirmedAt: "funding_confirmed_at",
 };
-const NUMERIC = new Set(["musd_in", "value_out", "open_valid_height", "swap_valid_height", "payout_valid_height"]);
+const NUMERIC = new Set(["musd_in", "value_out", "open_valid_height", "swap_valid_height", "payout_valid_height", "funding_valid_height"]);
 const RAW = new Set(["musd_out_raw", "sol_out_raw", "swap_out_raw"]);
 const POSITION_COLUMNS = Object.entries(FIELDS)
   .map(([k, col]) => (NUMERIC.has(col) ? `${col}::float as "${k}"` : RAW.has(col) ? `${col}::text as "${k}"` : `${col} as "${k}"`))
@@ -167,6 +177,53 @@ export async function createPositionForSession(sessionId: string, pair: string):
   return positionForSession(sessionId);
 }
 
+/// A web Earn position (no session), waiting for the customer's approved
+/// mUSD transfer to the treasury.
+export async function createWebPosition(p: {
+  privyUserId: string;
+  tier: SolTier;
+  pair: string;
+  musdIn: number;
+  fundingMessageHash: string;
+  fundingValidHeight: number;
+}): Promise<SolPositionRow> {
+  const id = crypto.randomUUID();
+  await pool.query(
+    `insert into solana_positions (id, privy_user_id, tier, pair, musd_in, status, source, funding_message_hash, funding_valid_height)
+     values ($1, $2, $3, $4, $5, 'funding', 'web', $6, $7)`,
+    [id, p.privyUserId, p.tier, p.pair, p.musdIn, p.fundingMessageHash, p.fundingValidHeight],
+  );
+  return (await getPosition(id))!;
+}
+
+/// 'funding' → 'opening' once the customer's transfer is confirmed. False if
+/// it wasn't 'funding' any more (another run got there first).
+export async function confirmFunding(id: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    "update solana_positions set status = 'opening', funding_confirmed_at = now(), error = null where id = $1 and status = 'funding'",
+    [id],
+  );
+  return rowCount === 1;
+}
+
+/// Web positions still waiting on their funding transfer (the sweep resolves them).
+export async function fundingRows(): Promise<SolPositionRow[]> {
+  const { rows } = await pool.query(`select ${POSITION_COLUMNS} from solana_positions where status = 'funding'`);
+  return rows;
+}
+
+/// Confirmed web positions with no open sent 5 minutes later — their open job
+/// was lost (e.g. a crash right after confirming). Re-queuing is safe:
+/// job ids dedupe and openPosition is idempotent.
+export async function webOpeningWithoutJob(): Promise<string[]> {
+  const { rows } = await pool.query<{ id: string }>(
+    `select id from solana_positions
+     where source = 'web' and status = 'opening' and open_sig is null and error is null
+       and funding_confirmed_at < now() - interval '5 minutes'`,
+  );
+  return rows.map((r) => r.id);
+}
+
 /// Writes the given fields (camelCase keys of SolPositionRow).
 export async function updatePosition(id: string, patch: Partial<Omit<SolPositionRow, "id">>): Promise<void> {
   const keys = Object.keys(patch) as (keyof Omit<SolPositionRow, "id">)[];
@@ -188,7 +245,7 @@ export async function markClosing(id: string, privyUserId: string): Promise<bool
 /// Writes `patch` only while `field` still equals `expected` (null = unset).
 /// False if another run changed it first — used so a stored signature is
 /// never overwritten by a second send, nor cleared after a newer one.
-export async function updatePositionIf<K extends "openSig" | "swapSig" | "payoutSig">(
+export async function updatePositionIf<K extends "openSig" | "swapSig" | "payoutSig" | "fundingSig">(
   id: string,
   field: K,
   expected: string | null,
