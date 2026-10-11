@@ -180,6 +180,7 @@ export async function createPositionForSession(sessionId: string, pair: string):
 /// A web Earn position (no session), waiting for the customer's approved
 /// mUSD transfer to the treasury.
 export async function createWebPosition(p: {
+  id: string;
   privyUserId: string;
   tier: SolTier;
   pair: string;
@@ -187,7 +188,7 @@ export async function createWebPosition(p: {
   fundingMessageHash: string;
   fundingValidHeight: number;
 }): Promise<SolPositionRow> {
-  const id = crypto.randomUUID();
+  const id = p.id;
   await pool.query(
     `insert into solana_positions (id, privy_user_id, tier, pair, musd_in, status, source, funding_message_hash, funding_valid_height)
      values ($1, $2, $3, $4, $5, 'funding', 'web', $6, $7)`,
@@ -202,6 +203,26 @@ export async function confirmFunding(id: string): Promise<boolean> {
   const { rowCount } = await pool.query(
     "update solana_positions set status = 'opening', funding_confirmed_at = now(), error = null where id = $1 and status = 'funding'",
     [id],
+  );
+  return rowCount === 1;
+}
+
+/// Stores the funding signature on a 'funding' row that has none. False if
+/// another submit got there first (or the row moved on).
+export async function claimFunding(id: string, signature: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    "update solana_positions set funding_sig = $2 where id = $1 and status = 'funding' and funding_sig is null",
+    [id, signature],
+  );
+  return rowCount === 1;
+}
+
+/// 'funding' → 'failed', only while the row still carries `expectedSig`
+/// (null = never signed), so a funded row can't be failed by a stale writer.
+export async function failFunding(id: string, reason: string, expectedSig: string | null): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    "update solana_positions set status = 'failed', error = $2 where id = $1 and status = 'funding' and funding_sig is not distinct from $3::text",
+    [id, reason, expectedSig],
   );
   return rowCount === 1;
 }
