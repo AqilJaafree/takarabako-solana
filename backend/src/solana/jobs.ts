@@ -3,7 +3,7 @@ import { newRedisConnection } from "../redis.js";
 import { pool } from "../db.js";
 import { publishUserEvent } from "../events.js";
 import { solanaReady } from "./client.js";
-import { closePosition, openForSession } from "./positions.js";
+import { closePosition, openForSession, openPosition } from "./positions.js";
 import { earnSessionsWithoutPosition, getPosition, positionForSession, updatePosition, type SolPositionRow } from "./store.js";
 
 /// Earn positions are opened and closed by this queue, one job at a time
@@ -11,7 +11,10 @@ import { earnSessionsWithoutPosition, getPosition, positionForSession, updatePos
 const QUEUE_NAME = "solana-positions";
 export const SOLANA_ATTEMPTS = 8;
 
-type JobData = { kind: "open"; sessionId: string } | { kind: "close"; positionId: string };
+type JobData =
+  | { kind: "open"; sessionId: string } // kiosk Earn: the row is created once the session's notes settle
+  | { kind: "openPosition"; positionId: string } // web Earn: the row exists and its funding has confirmed
+  | { kind: "close"; positionId: string };
 
 let queue: Queue<JobData> | null = null;
 let queueConn: ReturnType<typeof newRedisConnection> | null = null;
@@ -46,6 +49,16 @@ export async function enqueueOpen(sessionId: string, opts: { retry?: boolean } =
   await q.add("open", { kind: "open", sessionId }, { jobId });
 }
 
+export async function enqueueOpenPosition(positionId: string, opts: { retry?: boolean } = {}) {
+  const jobId = opts.retry ? `openpos-${positionId}-${Date.now()}` : `openpos-${positionId}`;
+  const q = positionsQueue();
+  if (!opts.retry) {
+    const existing = await q.getJob(jobId);
+    if (existing && (await existing.isFailed())) await existing.remove();
+  }
+  await q.add("open", { kind: "openPosition", positionId }, { jobId });
+}
+
 export async function enqueueClose(positionId: string) {
   // A new jobId per request so a customer can retry a close that failed for good.
   await positionsQueue().add("close", { kind: "close", positionId }, { jobId: `close-${positionId}-${Date.now()}` });
@@ -53,20 +66,23 @@ export async function enqueueClose(positionId: string) {
 
 async function run(job: Job<JobData>) {
   if (job.data.kind === "open") await openForSession(job.data.sessionId);
+  else if (job.data.kind === "openPosition") await openPosition(job.data.positionId);
   else await closePosition(job.data.positionId);
 }
 
 /// What to write when a job has used up its attempts. An open fails for good
-/// unless its signed open is stored (it may still land — stays 'opening' for
-/// the recovery sweep). A close goes back to 'open' so the customer can retry
-/// - unless a swap or payout signature is stored: that send may still land,
-/// so the row stays 'closing' (error recorded) for the recovery sweep.
+/// unless its signed open is stored (it may still land) or it is a web
+/// position (the customer's mUSD is already in the treasury) — those stay
+/// 'opening' with the error for the recovery sweep. A close goes back to
+/// 'open' so the customer can retry - unless a swap or payout signature is
+/// stored: that send may still land, so the row stays 'closing' (error
+/// recorded) for the recovery sweep.
 export function failedPositionPatch(
   kind: "open" | "close",
-  row: Pick<SolPositionRow, "openSig" | "swapSig" | "payoutSig">,
+  row: Pick<SolPositionRow, "openSig" | "swapSig" | "payoutSig"> & Partial<Pick<SolPositionRow, "source">>,
   message: string,
 ): Partial<Omit<SolPositionRow, "id">> {
-  if (kind === "open") return row.openSig ? { status: "opening", error: message } : { status: "failed", error: message };
+  if (kind === "open") return row.openSig || row.source === "web" ? { status: "opening", error: message } : { status: "failed", error: message };
   if (row.payoutSig || row.swapSig) return { status: "closing", error: message };
   return { status: "open", error: message };
 }
@@ -74,8 +90,14 @@ export function failedPositionPatch(
 async function markFailed(job: Job<JobData>, err: Error) {
   const row = job.data.kind === "open" ? await positionForSession(job.data.sessionId) : await getPosition(job.data.positionId);
   if (!row) return;
-  await updatePosition(row.id, failedPositionPatch(job.data.kind, row, err.message));
+  await updatePosition(row.id, failedPositionPatch(job.data.kind === "close" ? "close" : "open", row, err.message));
   await publishUserEvent(row.privyUserId, { type: "solana.position.failed", positionId: row.id, error: err.message });
+}
+
+/// Which job resumes a stuck row.
+export function recoveryJob(r: { id: string; status: string; sessionId: string | null }): JobData {
+  if (r.status === "closing") return { kind: "close", positionId: r.id };
+  return r.sessionId ? { kind: "open", sessionId: r.sessionId } : { kind: "openPosition", positionId: r.id };
 }
 
 /// Re-queue opens and closes whose retries ran out while a send was still
@@ -88,8 +110,10 @@ export async function recoverStuckPositions(): Promise<number> {
   );
   for (const r of rows) {
     await updatePosition(r.id, { error: null });
-    if (r.status === "closing") await enqueueClose(r.id);
-    else if (r.sessionId) await enqueueOpen(r.sessionId, { retry: true });
+    const job = recoveryJob(r);
+    if (job.kind === "close") await enqueueClose(job.positionId);
+    else if (job.kind === "open") await enqueueOpen(job.sessionId, { retry: true });
+    else await enqueueOpenPosition(job.positionId, { retry: true });
   }
   return rows.length;
 }
