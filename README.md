@@ -180,6 +180,7 @@ cd backend
 npm run sol:setup     # create mUSD + the DLMM pair + a seed position (needs a funded devnet treasury)
 npm run sol:smoke     # open and close Low/Medium/High against the live pair, check payouts on-chain
 SOL_SIM=1             # in backend/.env: the treasury swaps against the pair so Earn positions accrue fees
+SOLAMI_API_KEY=sk_…   # in backend/.env: real SOL/USD from Solami (mainnet) beside the devnet pool price on /ops
 ```
 
 Addresses and verification are in [`DEPLOYMENTS.md`](./DEPLOYMENTS.md#solana-devnet).

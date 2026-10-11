@@ -129,6 +129,8 @@ export interface SolanaOps {
   lowSol?: boolean;
   musdSupply?: number;
   pool?: { pair: string; activeId: number; binStep: number; solPriceUsd: number };
+  /** Real SOL/USD from Solami (mainnet); null without SOLAMI_API_KEY. */
+  market?: { solUsd: number; at: number; source: "solami"; driftPct: number } | null;
   positions?: { open: number; opening: number; closing: number; tvlUsd: number };
 }
 

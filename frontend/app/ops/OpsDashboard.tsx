@@ -130,6 +130,12 @@ export function OpsDashboard({ initial }: { initial: OpsData }) {
             <Tile label="Treasury SOL" value={data.solana.treasurySol!.toFixed(3)} tone={data.solana.lowSol ? "bad" : "ok"} sub={data.solana.lowSol ? "below floor — Solana destinations are off" : undefined} />
             <Tile label="mUSD supply" value={usd(data.solana.musdSupply!)} />
             <Tile label="SOL price (pool)" value={usd(data.solana.pool!.solPriceUsd)} sub={`bin ${data.solana.pool!.activeId} · step ${data.solana.pool!.binStep}`} />
+            <Tile
+              label="SOL price (market)"
+              value={data.solana.market ? usd(data.solana.market.solUsd) : "—"}
+              sub={data.solana.market ? `Solami · pool ${data.solana.market.driftPct > 0 ? "+" : ""}${data.solana.market.driftPct}%` : "set SOLAMI_API_KEY"}
+              tone={data.solana.market && Math.abs(data.solana.market.driftPct) > 10 ? "warn" : undefined}
+            />
             <Tile label="Earn positions" value={String(data.solana.positions!.open)} sub={`${usd(data.solana.positions!.tvlUsd)} · ${data.solana.positions!.opening} opening · ${data.solana.positions!.closing} closing`} />
           </div>
         ) : ok(data.solana) ? (

@@ -106,4 +106,10 @@ export const config = {
     simEnabled: process.env.SOL_SIM === "1",
     simIntervalMs: Number(process.env.SOL_SIM_INTERVAL_MS ?? 600_000),
   },
+  // Solami market data (solana/marketPrice.ts): real SOL/USD shown beside
+  // the devnet pool price on /ops. Unset = no market price.
+  solami: {
+    apiUrl: process.env.SOLAMI_API_URL ?? "https://api.solami.dev",
+    apiKey: process.env.SOLAMI_API_KEY ?? "",
+  },
 } as const;

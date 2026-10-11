@@ -8,6 +8,7 @@ import { solanaAvailable, solanaReady, treasurySol, treasury } from "../solana/c
 import { balanceRaw, fromRaw, supplyRaw } from "../solana/musd.js";
 import { poolState } from "../solana/meteora.js";
 import { SOL_TIERS } from "../solana/tiers.js";
+import { driftPct, solMarketPrice } from "../solana/marketPrice.js";
 import { getPosition, listLivePositions, listPositions, markClosing } from "../solana/store.js";
 import { viewPosition } from "../solana/positions.js";
 import { enqueueClose } from "../solana/jobs.js";
@@ -70,7 +71,7 @@ solanaRouter.get("/dashboard/solana", asyncHandler(async (_req, res) => {
     res.json({ ready: false });
     return;
   }
-  const [sol, supply, pool, live] = await Promise.all([treasurySol(), supplyRaw(), poolState(), listLivePositions()]);
+  const [sol, supply, pool, live, market] = await Promise.all([treasurySol(), supplyRaw(), poolState(), listLivePositions(), solMarketPrice()]);
   const views = await Promise.all(live.filter((r) => r.status === "open").map((r) => viewPosition(r)));
   res.json({
     ready: true,
@@ -79,6 +80,7 @@ solanaRouter.get("/dashboard/solana", asyncHandler(async (_req, res) => {
     lowSol: sol < config.solana.minTreasurySol,
     musdSupply: fromRaw(supply),
     pool,
+    market: market && { ...market, driftPct: driftPct(pool.solPriceUsd, market.solUsd) },
     positions: {
       open: views.length,
       opening: live.filter((r) => r.status === "opening").length,
