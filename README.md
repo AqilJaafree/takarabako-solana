@@ -179,7 +179,8 @@ longer land, so a retry can't pay twice.
 cd backend
 npm run sol:setup     # create mUSD + the DLMM pair + a seed position (needs a funded devnet treasury)
 npm run sol:smoke     # open and close Low/Medium/High against the live pair, check payouts on-chain
-SOL_SIM=1             # in backend/.env: the treasury swaps against the pair so Earn positions accrue fees
+SOL_SIM=1             # in backend/.env: the treasury swaps against the pair so Earn positions accrue fees,
+                      # and (with SOLAMI_API_KEY) walks the pool price toward the real SOL/USD, $25 a tick
 SOLAMI_API_KEY=sk_…   # in backend/.env: real SOL/USD from Solami (mainnet) beside the devnet pool price on /ops
 ```
 
