@@ -1,18 +1,21 @@
 # Takarabako (宝箱)
 
-**Takarabako turns banknotes into on-chain money: insert cash at a kiosk and it
-becomes a yield-bearing balance and a tokenized cash receipt (tkCASH) on
-Ethereum, with Curvegrid MultiBaas indexing every flow for a treasury
+**Takarabako turns banknotes into on-chain money: insert cash at a kiosk and
+choose where it goes: a yield-bearing balance and a tokenized cash receipt
+(tkCASH) on Ethereum, or a Token-2022 dollar and a Meteora liquidity position
+on Solana. Curvegrid MultiBaas indexes the Ethereum flows for a treasury
 dashboard and a policy-bound AI agent.**
 
 An ATM-style cash-in kiosk: verify your identity with just an email (Privy —
 real embedded wallet, no seed phrase, no app), *then* insert cash, and it's
 credited to an ENS-named on-chain wallet (`*.takarabako.eth`) with optional
 risk-tiered yield as 1inch Aqua liquidity strategies (Uniswap v3 before), with a Claude Haiku
-4.5 call. Built for ETHGlobal Online 2026. Full product spec lives in
+4.5 call. The same kiosk can instead send the cash to Solana devnet: hold mUSD
+in a Privy Solana wallet, or earn with a Meteora DLMM V2 position. Built for
+ETHGlobal Online 2026. Full product spec lives in
 `takarabako-prd.md` (gitignored, local-only).
 
-Nearly everything below is real, on Ethereum Sepolia — not a stub. See
+Nearly everything below is real, on Ethereum Sepolia and Solana devnet — not a stub. See
 [`DEPLOYMENTS.md`](./DEPLOYMENTS.md) for the full deployment history and
 independent on-chain verification of each piece, and
 [`FEEDBACK.md`](./FEEDBACK.md) for integration notes gathered along the way.
@@ -37,6 +40,14 @@ we don't own — real Uniswap v3 (Factory/NPM/WETH9), real ENS v2 Beta
 subname registry deployed via that factory. Full addresses, how each was
 independently confirmed on-chain (not just trusting a tx receipt), and the
 per-risk-tier pool addresses are all in [`DEPLOYMENTS.md`](./DEPLOYMENTS.md).
+
+On Solana devnet (verification in [`DEPLOYMENTS.md`](./DEPLOYMENTS.md#solana-devnet)):
+
+| What | Address | Explorer |
+|---|---|---|
+| mUSD (Token-2022) | `G9kbAWLmKRr8PYz3x2rrbq4CnurkPx14dQnbYz343DsS` | [Solscan](https://solscan.io/token/G9kbAWLmKRr8PYz3x2rrbq4CnurkPx14dQnbYz343DsS?cluster=devnet) |
+| Meteora DLMM V2 pair (wSOL/mUSD, 0.25% fee) | `2U8tBjTahgLvMv1QboFCZJ8aKdNPFRnLwY47pReS2spg` | [Solscan](https://solscan.io/account/2U8tBjTahgLvMv1QboFCZJ8aKdNPFRnLwY47pReS2spg?cluster=devnet) |
+| Treasury | `HQ6Q4Sdu21h7NKiNZpmBecJMT8DJWEJ4cV4VaCQk6ZJ3` | [Solscan](https://solscan.io/account/HQ6Q4Sdu21h7NKiNZpmBecJMT8DJWEJ4cV4VaCQk6ZJ3?cluster=devnet) |
 
 Live app deployment:
 
@@ -91,12 +102,6 @@ flowchart LR
     API <-->|tools: reads + proposals| Agent[Claude ops agent]
     Dash -->|operator approves| API
 ```
-
-### Team
-
-- **belulok** — [github.com/belulok](https://github.com/belulok)
-- **nizarsyahmi37** — [github.com/nizarsyahmi37](https://github.com/nizarsyahmi37)
-- **AqilJaafree** — [github.com/AqilJaafree](https://github.com/AqilJaafree)
 
 ### Our experience with MultiBaas
 
@@ -153,7 +158,8 @@ logs in by scanning the customer's wallet QR.
 At the kiosk a customer picks where the cash goes:
 
 1. **Ethereum vault**: the original Sepolia flow above.
-2. **Solana Hold mUSD**: the treasury sends mUSD to the customer's Solana wallet.
+2. **Solana Hold mUSD**: the treasury mints mUSD to the customer's Solana wallet
+   (a Privy embedded wallet created the first time they pick Solana).
 3. **Solana Meteora Earn**: the cash opens a Meteora DLMM V2 liquidity position.
 
 mUSD is a Token-2022 mock dollar (6 decimals, MetadataPointer + TokenMetadata
@@ -168,8 +174,15 @@ customer:
 | Medium | Curve | 30 |
 | High | BidAsk | 10 |
 
-Closing a position pays the customer back in mUSD, swapping any SOL the
-position picked up along the way.
+Customers see their mUSD balance and positions (range, live value, fees) on
+the dashboard and can close a position there. Closing pays the customer back
+in mUSD, swapping any SOL the position picked up along the way. There is no
+way yet to turn mUSD into USDC or cash.
+
+`/ops` has a Solana panel: treasury SOL (Solana is switched off at the kiosk
+below `SOLANA_MIN_TREASURY_SOL`), mUSD supply, the pool's SOL price next to
+the real SOL/USD from [Solami](https://solami.dev) market data (with the gap
+between them), and open Earn positions.
 
 Safety model: every signed transaction is stored before it is broadcast, and it
 is never re-sent until the finalized block height proves the old one can no
@@ -226,7 +239,8 @@ The pair is mETH (a mintable ETH stand-in priced off live ETH/USD) and mUSDC.
 - **`backend/`** — Node/TypeScript orchestrator: real Privy identity, real
   ENS v2 subname registration, real vault deposit/withdraw, real per-user
   1inch Aqua yield strategies (beginner tiers and a drawable advanced range), real Claude Haiku 4.5
-  rationale.
+  rationale. `src/solana/` holds the Solana side: mUSD, the Meteora pair,
+  Earn positions and their BullMQ queue, and the Solami price feed.
 - **`frontend/`** — Next.js web app: the customer app (Privy email-code
   login, live balance, quick-deposit QR, yield, withdraw), `/kiosk`, the
   box's new screen, `/deposit`, the public cash-deposit terminal (wallet QR login), and
@@ -253,6 +267,9 @@ sequenceDiagram
     Privy-->>API: userId + embedded wallet
     API->>ENS: register <label>.takarabako.eth (new account only)
     API-->>Kiosk: {userId, ensName, balance: 0}
+
+    User->>Kiosk: pick a destination (Ethereum vault, Solana Hold, Solana Earn)
+    Note over Kiosk,API: Solana paths mint mUSD on devnet instead,<br/>and Earn opens a Meteora position at Finish
 
     User->>Kiosk: insert cash (or fallback button)
     Kiosk->>API: POST /deposit {userId, amount}
@@ -317,10 +334,11 @@ cd device-agent && cp public/config.example.js public/config.js && node server.j
 
 ```bash
 cd contracts && forge test          # vault + tkCASH (18 tests, incl. a supply == reserve fuzz)
-cd backend && npm test              # needs Postgres + Redis (npm run services); 119 tests:
+cd backend && npm test              # needs Postgres + Redis (npm run services); 127 tests:
                                     # webhook signatures, tkCASH encoding, policy limits,
                                     # proposal lifecycle with the executor stubbed, monitor
-                                    # rules, …
+                                    # rules, Solana deposit routing, Earn position lifecycle, …
+cd backend && npm run sol:smoke     # live devnet: open and close every Earn tier
 cd backend && npm run typecheck
 ```
 
@@ -331,6 +349,6 @@ answer + tool trace), then "Raise APY to 50%" (policy rejects it), then "Top
 up the yield reserve with 100 USDC" (pending → Approve → the tx appears in
 MultiBaas and the feed).
 
-Treasury wallet is a testnet-only burner key — check its Sepolia ETH
-balance before running anything that spends gas; it runs dry easily at
-hackathon pace.
+Treasury wallets are testnet-only burner keys — check the Sepolia ETH and
+devnet SOL balances before running anything that spends gas; they run dry
+easily at hackathon pace.
