@@ -2,12 +2,16 @@
 // against a RUNNING backend (npm run dev), the way the kiosk calls it:
 //   email login → Hold visit (RM10 → mUSD in their Solana wallet)
 //   → Earn High visit (Finish opens a Meteora position) → close it → paid in mUSD
+//   → web Earn (a throwaway account whose Solana wallet is a local keypair,
+//     standing in for the Privy wallet): Hold RM10, then Earn part of it from
+//     the web app, approve the transfer, check it opens, close it
 // Each visit uses one test RM10 note. Real devnet transactions and a real
 // Privy Solana wallet the first time the account picks Solana, so use a demo
 // account, never a real customer's:
 //   cd backend && npm run sol:flow -- [email]     (default bob.demo@takarabako.test)
 // FLOW_API overrides the backend URL (default http://localhost:$PORT).
-import { PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { insertAccount, markQrEmailed, setSolanaWallet } from "../src/accounts.js";
 import { balanceRaw, fromRaw } from "../src/solana/musd.js";
 
 const API = process.env.FLOW_API ?? `http://localhost:${process.env.PORT ?? 4000}`;
@@ -83,6 +87,68 @@ async function visit(destination: "sol_hold" | "sol_earn", tier?: "low" | "mediu
   return { id, usd: Number(note?.usdAmount ?? 0) };
 }
 
+async function login(email: string): Promise<boolean> {
+  const res = await call("POST", "/verify", { email });
+  const ok = check(`login as ${email}`, res.status === 200 && Boolean(res.json.token), `${res.status} ${res.json.ensName ?? JSON.stringify(res.json)}`);
+  if (ok) token = res.json.token;
+  return ok;
+}
+
+/// Web Earn with a wallet this script can sign for.
+async function webEarnFlow() {
+  console.log("\n== Web Earn (local test wallet) ==");
+  const user = `flow-${Date.now()}`;
+  const wallet = Keypair.generate();
+  const evm = (n: number) => `0x${(BigInt(Date.now()) * 10n + BigInt(n)).toString(16).padStart(40, "0")}`;
+  await insertAccount({ privyUserId: user, email: `${user}@example.com`, privyWallet: evm(1), boundAddress: evm(2), ensName: null });
+  await markQrEmailed(user); // no welcome email to example.com
+  await setSolanaWallet(user, wallet.publicKey.toBase58());
+  if (!(await login(`${user}@example.com`))) return;
+
+  const hold = await visit("sol_hold");
+  if (!hold) return;
+  const funded = await until(async () => ({ done: Number((await me()).musd ?? 0) >= hold.usd - 1e-6 }), 60_000);
+  if (!check("test wallet holds mUSD", funded.done)) return;
+
+  const amount = Math.floor(hold.usd * 1e6 / 2) / 1e6; // half of it
+  const tooMuch = await call("POST", "/solana/earn/prepare", { amount: hold.usd * 10, tier: "medium" });
+  check("prepare refuses more than the balance", tooMuch.status === 400, `${tooMuch.status} ${tooMuch.json.error}`);
+
+  const bad = await call("POST", "/solana/earn/prepare", { amount, tier: "medium" });
+  const garbage = await call("POST", "/solana/earn/submit", { id: bad.json.id, signedTx: Buffer.from("not a tx").toString("base64") });
+  check("submit refuses an unsigned or garbage transaction", garbage.status === 400, `${garbage.status} ${garbage.json.error}`);
+
+  const prep = await call("POST", "/solana/earn/prepare", { amount, tier: "medium" });
+  if (!check("prepare web Earn", prep.status === 200 && Boolean(prep.json.tx), `${prep.status} ${prep.json.error ?? `id ${prep.json.id}`}`)) return;
+  const tx = Transaction.from(Buffer.from(prep.json.tx, "base64"));
+  tx.partialSign(wallet); // the customer approves (Privy does this in the browser)
+  const signedTx = tx.serialize({ requireAllSignatures: false }).toString("base64");
+  const sub = await call("POST", "/solana/earn/submit", { id: prep.json.id, signedTx });
+  check("submit the approved transfer", sub.status === 202 && sub.json.status === "opening", `${sub.status} ${JSON.stringify(sub.json)}`);
+  const again = await call("POST", "/solana/earn/submit", { id: prep.json.id, signedTx });
+  check("second submit refused", again.status === 409, String(again.status));
+
+  const opened = await until(async () => {
+    const p = ((await me()).positions ?? []).find((x: Json) => x.id === prep.json.id);
+    return { done: Boolean(p) && ["open", "failed"].includes(p.status), p };
+  });
+  check("web position opened", opened.p?.status === "open" && opened.p?.source === "web",
+    `in ${opened.p?.musdIn} · bins ${opened.p?.minBinId}..${opened.p?.maxBinId} · tx ${opened.p?.openSig}${opened.p?.error ? ` error ${opened.p.error}` : ""}`);
+  const onChain = fromRaw(await balanceRaw(wallet.publicKey));
+  check("the transfer left the customer's wallet", Math.abs(onChain - (hold.usd - amount)) < 1e-6, `devnet ${onChain} = ${hold.usd} − ${amount}`);
+
+  if (opened.p?.status === "open") {
+    await call("POST", `/solana/positions/${opened.p.id}/close`);
+    const closed = await until(async () => {
+      const r = await me();
+      const q = (r.positions ?? []).find((x: Json) => x.id === opened.p.id);
+      return { done: Boolean(q) && ["closed", "failed"].includes(q.status), q };
+    });
+    check("web position closed and paid back", closed.q?.status === "closed", `paid ${closed.q?.valueOut} of ${amount}`);
+  }
+  await call("POST", "/logout");
+}
+
 async function main() {
   console.log(`sol:flow against ${API} as ${EMAIL}`);
   const status = await call("GET", "/solana/status").catch(() => null);
@@ -91,9 +157,7 @@ async function main() {
     process.exit(1);
   }
 
-  const login = await call("POST", "/verify", { email: EMAIL });
-  if (!check("kiosk email login", login.status === 200 && Boolean(login.json.token), `${login.status} ${login.json.ensName ?? JSON.stringify(login.json)}`)) process.exit(1);
-  token = login.json.token;
+  if (!(await login(EMAIL))) process.exit(1);
 
   const start = await me();
   const musd0 = Number(start.musd ?? 0);
@@ -152,6 +216,7 @@ async function main() {
     `treasury ${ops.json.treasurySol} SOL · mUSD supply ${ops.json.musdSupply} · market ${ops.json.market ? `$${ops.json.market.solUsd}` : "no Solami key"}`);
 
   await call("POST", "/logout");
+  await webEarnFlow();
   console.log(`\n${failures === 0 ? "ALL PASSED" : `${failures} FAILED`}`);
   process.exit(failures === 0 ? 0 : 1);
 }
