@@ -9,6 +9,7 @@ import {
   createPositionForSession,
   finalizeClose,
   finalizeOpen,
+  finalizeRefund,
   getPosition,
   positionForSession,
   sessionSettled,
@@ -96,8 +97,9 @@ export async function openPosition(id: string, d: PositionDeps = liveDeps): Prom
       maxBinId: prepared.maxBinId,
       openSig: prepared.signed.signature,
       openValidHeight: prepared.signed.lastValidBlockHeight,
-    });
-    if (!stored) throw new Error(`position ${row.id}: an open is already recorded - not sending a second`);
+    }, "opening");
+    // false: another run stored a send, or the row left 'opening' (e.g. it is being refunded)
+    if (!stored) throw new Error(`position ${row.id}: not opening any more, or an open is already recorded - not sending`);
     signature = prepared.signed.signature;
     validHeight = prepared.signed.lastValidBlockHeight;
     await d.broadcast(prepared.signed.raw);
@@ -207,6 +209,35 @@ export async function closePosition(id: string, d: PositionDeps = liveDeps): Pro
   return getPosition(id);
 }
 
+/// Sends a web position's mUSD back to the customer (status 'refunding'):
+/// its open can never succeed. Same signature rules as the payout above.
+export async function refundPosition(id: string, d: PositionDeps = liveDeps): Promise<SolPositionRow | null> {
+  const row = await getPosition(id);
+  if (!row || row.status !== "refunding") return row;
+  const account = await findByPrivyUserId(row.privyUserId);
+  if (!account) throw new Error(`position ${id}: account missing`);
+
+  let signature = row.refundSig;
+  let validHeight = row.refundValidHeight;
+  if (!signature || validHeight == null) {
+    const wallet = await solanaWalletFor(account);
+    const signed = await d.signPayout(wallet, toRaw(row.musdIn));
+    const stored = await updatePositionIf(id, "refundSig", null, { refundSig: signed.signature, refundValidHeight: signed.lastValidBlockHeight });
+    if (!stored) throw new Error(`position ${id}: a refund is already recorded - not sending a second`);
+    signature = signed.signature;
+    validHeight = signed.lastValidBlockHeight;
+    await d.broadcast(signed.raw);
+  }
+  const outcome = await d.confirm(signature, validHeight);
+  if (outcome !== "confirmed") {
+    await updatePositionIf(id, "refundSig", signature, { refundSig: null, refundValidHeight: null });
+    throw new Error(`refund ${signature} ${outcome} - refunding again`);
+  }
+
+  if (await finalizeRefund(id)) await d.publish(row.privyUserId, { type: "solana.position.refunded", positionId: id, amountUsd: row.musdIn, signature });
+  return getPosition(id);
+}
+
 export interface PositionView {
   id: string;
   tier: SolTier;
@@ -221,6 +252,7 @@ export interface PositionView {
   maxBinId: number | null;
   openSig: string | null;
   payoutSig: string | null;
+  refundSig: string | null;
   valueOut: number | null;
   error: string | null;
   createdAt: Date;
@@ -244,7 +276,7 @@ export async function viewPosition(row: SolPositionRow, d: Pick<PositionDeps, "p
   return {
     id: row.id, tier: row.tier, label: pairLabel(row.tier), status: row.status, source: row.source, musdIn: row.musdIn,
     valueUsd: row.status === "closed" ? row.valueOut : valueUsd, feesUsd, inRange,
-    minBinId: row.minBinId, maxBinId: row.maxBinId, openSig: row.openSig, payoutSig: row.payoutSig,
+    minBinId: row.minBinId, maxBinId: row.maxBinId, openSig: row.openSig, payoutSig: row.payoutSig, refundSig: row.refundSig,
     valueOut: row.valueOut, error: row.error, createdAt: row.createdAt,
   };
 }

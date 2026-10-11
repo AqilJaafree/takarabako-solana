@@ -64,7 +64,7 @@ export async function sessionSettled(sessionId: string): Promise<boolean> {
 
 // ---- positions ---------------------------------------------------------
 
-export type PositionStatus = "funding" | "opening" | "open" | "closing" | "closed" | "failed";
+export type PositionStatus = "funding" | "opening" | "open" | "closing" | "closed" | "failed" | "refunding" | "refunded";
 
 export interface SolPositionRow {
   id: string;
@@ -98,6 +98,10 @@ export interface SolPositionRow {
   fundingValidHeight: number | null;
   fundingMessageHash: string | null;
   fundingConfirmedAt: Date | null;
+  recoveries: number; // times the recovery sweep re-queued a stuck web open
+  refundSig: string | null;
+  refundValidHeight: number | null;
+  refundedAt: Date | null;
 }
 
 const FIELDS: Record<keyof SolPositionRow, string> = {
@@ -132,8 +136,12 @@ const FIELDS: Record<keyof SolPositionRow, string> = {
   fundingValidHeight: "funding_valid_height",
   fundingMessageHash: "funding_message_hash",
   fundingConfirmedAt: "funding_confirmed_at",
+  recoveries: "recoveries",
+  refundSig: "refund_sig",
+  refundValidHeight: "refund_valid_height",
+  refundedAt: "refunded_at",
 };
-const NUMERIC = new Set(["musd_in", "value_out", "open_valid_height", "swap_valid_height", "payout_valid_height", "funding_valid_height"]);
+const NUMERIC = new Set(["musd_in", "value_out", "open_valid_height", "swap_valid_height", "payout_valid_height", "funding_valid_height", "refund_valid_height"]);
 const RAW = new Set(["musd_out_raw", "sol_out_raw", "swap_out_raw"]);
 const POSITION_COLUMNS = Object.entries(FIELDS)
   .map(([k, col]) => (NUMERIC.has(col) ? `${col}::float as "${k}"` : RAW.has(col) ? `${col}::text as "${k}"` : `${col} as "${k}"`))
@@ -155,7 +163,7 @@ export async function listPositions(privyUserId: string): Promise<SolPositionRow
 }
 
 export async function listLivePositions(): Promise<SolPositionRow[]> {
-  const { rows } = await pool.query(`select ${POSITION_COLUMNS} from solana_positions where status in ('opening', 'open', 'closing')`);
+  const { rows } = await pool.query(`select ${POSITION_COLUMNS} from solana_positions where status in ('opening', 'open', 'closing', 'refunding')`);
   return rows;
 }
 
@@ -245,6 +253,31 @@ export async function webOpeningWithoutJob(): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
+/// A stuck web open is being re-queued once more.
+export async function bumpRecoveries(id: string): Promise<void> {
+  await pool.query("update solana_positions set recoveries = recoveries + 1 where id = $1", [id]);
+}
+
+/// 'opening' → 'refunding' for a web row whose open can never succeed — only
+/// while no open was ever signed (a stored open might still land). False if
+/// the row isn't in that state (any more).
+export async function markRefunding(id: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    "update solana_positions set status = 'refunding', error = null where id = $1 and status = 'opening' and source = 'web' and open_sig is null",
+    [id],
+  );
+  return rowCount === 1;
+}
+
+/// 'refunding' → 'refunded'. False if it wasn't 'refunding' any more.
+export async function finalizeRefund(id: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    "update solana_positions set status = 'refunded', refunded_at = now(), error = null where id = $1 and status = 'refunding'",
+    [id],
+  );
+  return rowCount === 1;
+}
+
 /// Writes the given fields (camelCase keys of SolPositionRow).
 export async function updatePosition(id: string, patch: Partial<Omit<SolPositionRow, "id">>): Promise<void> {
   const keys = Object.keys(patch) as (keyof Omit<SolPositionRow, "id">)[];
@@ -266,20 +299,21 @@ export async function markClosing(id: string, privyUserId: string): Promise<bool
 /// Writes `patch` only while `field` still equals `expected` (null = unset).
 /// False if another run changed it first — used so a stored signature is
 /// never overwritten by a second send, nor cleared after a newer one.
-export async function updatePositionIf<K extends "openSig" | "swapSig" | "payoutSig" | "fundingSig">(
+export async function updatePositionIf<K extends "openSig" | "swapSig" | "payoutSig" | "fundingSig" | "refundSig">(
   id: string,
   field: K,
   expected: string | null,
   patch: Partial<Omit<SolPositionRow, "id">>,
+  status?: PositionStatus, // also require this status (so a row moved on meanwhile isn't written)
 ): Promise<boolean> {
   const keys = Object.keys(patch) as (keyof Omit<SolPositionRow, "id">)[];
   if (!keys.length) return false;
-  const sets = keys.map((k, i) => `${FIELDS[k]} = $${i + 3}`);
-  const { rowCount } = await pool.query(`update solana_positions set ${sets.join(", ")} where id = $1 and ${FIELDS[field]} is not distinct from $2::text`, [
-    id,
-    expected,
-    ...keys.map((k) => patch[k] ?? null),
-  ]);
+  const sets = keys.map((k, i) => `${FIELDS[k]} = $${i + 4}`);
+  const { rowCount } = await pool.query(
+    `update solana_positions set ${sets.join(", ")}
+     where id = $1 and ${FIELDS[field]} is not distinct from $2::text and ($3::text is null or status = $3::text)`,
+    [id, expected, status ?? null, ...keys.map((k) => patch[k] ?? null)],
+  );
   return rowCount === 1;
 }
 

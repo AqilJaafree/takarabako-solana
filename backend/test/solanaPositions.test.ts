@@ -282,3 +282,83 @@ test("viewPosition reports the source", async () => {
   const row = await store.createWebPosition({ privyUserId: "u-p", tier: "low", pair: "PAIR", musdIn: 1, id: crypto.randomUUID(), fundingMessageHash: `H-${crypto.randomUUID()}`, fundingValidHeight: 1 });
   assert.equal((await viewPosition(row)).source, "web");
 });
+
+async function refundingRow(musdIn: number) {
+  const row = await store.createWebPosition({ privyUserId: "u-p", tier: "low", pair: "PAIR", musdIn, id: crypto.randomUUID(), fundingMessageHash: `H-${crypto.randomUUID()}`, fundingValidHeight: 1 });
+  await store.confirmFunding(row.id);
+  assert.equal(await store.markRefunding(row.id), true);
+  return row.id;
+}
+
+test("refund: pays the customer musdIn once; a second run is a no-op", async () => {
+  const { refundPosition } = await import("../src/solana/positions.js");
+  const id = await refundingRow(4);
+  const c = fakeChain();
+  const done = await refundPosition(id, c.deps);
+  assert.deepEqual(c.calls.paid, [["WALLET", 4_000_000n]]);
+  assert.deepEqual([done?.status, done?.error], ["refunded", null]);
+  assert.ok(done?.refundSig && done.refundedAt);
+  assert.deepEqual(c.calls.events, ["solana.position.refunded"]);
+  await refundPosition(id, c.deps);
+  assert.equal(c.calls.paid.length, 1);
+  assert.equal(c.calls.events.length, 1);
+});
+
+test("refund: an expired refund is cleared and sent again", async () => {
+  const { refundPosition } = await import("../src/solana/positions.js");
+  const id = await refundingRow(2);
+  await assert.rejects(refundPosition(id, fakeChain({ pay: ["expired"] }).deps), /expired/);
+  assert.equal((await store.getPosition(id))?.refundSig, null);
+  const second = fakeChain();
+  assert.equal((await refundPosition(id, second.deps))?.status, "refunded");
+  assert.equal(second.calls.paid.length, 1);
+});
+
+test("refund: a stored signature whose confirm throws is re-checked, not re-sent", async () => {
+  const { refundPosition } = await import("../src/solana/positions.js");
+  const id = await refundingRow(3);
+  const first = fakeChain();
+  first.deps.confirm = async () => { throw new Error("rpc down"); };
+  await assert.rejects(refundPosition(id, first.deps), /rpc down/);
+  const second = fakeChain();
+  assert.equal((await refundPosition(id, second.deps))?.status, "refunded");
+  assert.equal(second.calls.paid.length, 0);
+});
+
+test("refund: a row that isn't 'refunding' is untouched", async () => {
+  const { refundPosition } = await import("../src/solana/positions.js");
+  const row = await store.createWebPosition({ privyUserId: "u-p", tier: "low", pair: "PAIR", musdIn: 1, id: crypto.randomUUID(), fundingMessageHash: `H-${crypto.randomUUID()}`, fundingValidHeight: 1 });
+  await store.confirmFunding(row.id);
+  const c = fakeChain();
+  assert.equal((await refundPosition(row.id, c.deps))?.status, "opening");
+  assert.equal(c.calls.paid.length, 0);
+});
+
+test("markRefunding: only a web 'opening' row with no signed open", async () => {
+  const row = await store.createWebPosition({ privyUserId: "u-p", tier: "low", pair: "PAIR", musdIn: 1, id: crypto.randomUUID(), fundingMessageHash: `H-${crypto.randomUUID()}`, fundingValidHeight: 1 });
+  assert.equal(await store.markRefunding(row.id), false); // still funding
+  await store.confirmFunding(row.id);
+  await store.updatePosition(row.id, { openSig: "o" });
+  assert.equal(await store.markRefunding(row.id), false); // an open might still land
+});
+
+test("a refunded web row no longer counts toward the daily limit", async () => {
+  const before = await usedToday("u-p");
+  const id = await refundingRow(7);
+  assert.equal(await usedToday("u-p"), before + 7);
+  await store.finalizeRefund(id);
+  assert.equal(await usedToday("u-p"), before);
+});
+
+test("an open can't be sent once the row was moved to refunding", async () => {
+  const { openPosition } = await import("../src/solana/positions.js");
+  const row = await store.createWebPosition({ id: crypto.randomUUID(), privyUserId: "u-p", tier: "low", pair: "PAIR", musdIn: 2, fundingMessageHash: `race-${crypto.randomUUID()}`, fundingValidHeight: 1 });
+  await store.confirmFunding(row.id);
+  const { calls, deps } = fakeChain();
+  // the sweep flips it to refunding while this open is preparing its transaction
+  const racing = { ...deps, prepareOpen: async (...a: Parameters<typeof deps.prepareOpen>) => { await store.markRefunding(row.id); return deps.prepareOpen(...a); } };
+  await assert.rejects(openPosition(row.id, racing), /not opening any more/);
+  assert.equal(calls.broadcast, 0);
+  const after = await store.getPosition(row.id);
+  assert.deepEqual([after?.status, after?.openSig], ["refunding", null]);
+});

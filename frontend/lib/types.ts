@@ -187,7 +187,8 @@ export type LiveEvent =
   | { type: "tkcash.minted"; depositId: string; amount: number; txHash: string; ts: number }
   | { type: "solana.position.opened"; positionId: string; tier: string; amountUsd: number; signature: string; ts: number }
   | { type: "solana.position.closed"; positionId: string; valueUsd: number; signature: string; ts: number }
-  | { type: "solana.position.failed"; positionId: string; error: string; ts: number };
+  | { type: "solana.position.failed"; positionId: string; error: string; ts: number }
+  | { type: "solana.position.refunded"; positionId: string; amountUsd: number; signature: string; ts: number };
 
 /// A deposit session's receipt (backend history.ts).
 export interface ReceiptNote {
@@ -309,7 +310,7 @@ export interface SolanaPosition {
   id: string;
   tier: SolTier;
   label: string;
-  status: "funding" | "opening" | "open" | "closing" | "closed" | "failed";
+  status: "funding" | "opening" | "open" | "closing" | "closed" | "failed" | "refunding" | "refunded";
   source: "kiosk" | "web";
   musdIn: number;
   valueUsd: number | null;
@@ -319,6 +320,7 @@ export interface SolanaPosition {
   maxBinId: number | null;
   openSig: string | null;
   payoutSig: string | null;
+  refundSig: string | null;
   valueOut: number | null;
   error: string | null;
   createdAt: string;

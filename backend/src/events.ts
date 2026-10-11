@@ -23,7 +23,8 @@ export type UserEvent =
   | { type: "tkcash.minted"; depositId: string; amount: number; txHash: string }
   | { type: "solana.position.opened"; positionId: string; tier: string; amountUsd: number; signature: string }
   | { type: "solana.position.closed"; positionId: string; valueUsd: number; signature: string }
-  | { type: "solana.position.failed"; positionId: string; error: string };
+  | { type: "solana.position.failed"; positionId: string; error: string }
+  | { type: "solana.position.refunded"; positionId: string; amountUsd: number; signature: string };
 
 const channel = (privyUserId: string) => `user:${privyUserId}`;
 

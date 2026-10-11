@@ -71,15 +71,15 @@ export function SolanaCard({ refreshKey, showEarnLink = true }: { refreshKey: nu
           {data.positions.map((p) => (
             <li key={p.id} className="spread">
               <span>
-                {p.label} · {p.status === "open" ? (p.inRange ? "in range" : "out of range") : p.status === "funding" ? "waiting for your approval" : p.status}
+                {p.label} · {p.status === "open" ? (p.inRange ? "in range" : "out of range") : p.status === "funding" ? "waiting for your approval" : p.status === "refunding" ? "refunding your mUSD" : p.status}
                 <br />
                 <span className="muted small">
                   in {usd(p.musdIn)}
                   {p.valueUsd != null && ` · now ${usd(p.valueUsd)}`}
                   {p.feesUsd != null && p.feesUsd > 0 && ` · fees ${usd(p.feesUsd)}`}
-                  {(p.payoutSig ?? p.openSig) && (
+                  {(p.refundSig ?? p.payoutSig ?? p.openSig) && (
                     <>
-                      {" "}· <a href={SOLSCAN_TX((p.payoutSig ?? p.openSig)!)} target="_blank" rel="noreferrer">tx</a>
+                      {" "}· <a href={SOLSCAN_TX((p.refundSig ?? p.payoutSig ?? p.openSig)!)} target="_blank" rel="noreferrer">tx</a>
                     </>
                   )}
                 </span>

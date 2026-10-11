@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { failedPositionPatch, recoveryJob } from "../src/solana/jobs.js";
+import { MAX_OPEN_RECOVERIES, failedPositionPatch, recoveryJob, webRecoveryAction } from "../src/solana/jobs.js";
 
 const none = { openSig: null, swapSig: null, payoutSig: null };
 
@@ -30,4 +30,22 @@ test("recoveryJob: closing → close, kiosk opening → by session, web opening 
 test("a failed web open stays opening: the customer's mUSD is already in the treasury", () => {
   assert.deepEqual(failedPositionPatch("open", { ...none, source: "web" }, "boom"), { status: "opening", error: "boom" });
   assert.deepEqual(failedPositionPatch("open", { ...none, source: "kiosk" }, "boom"), { status: "failed", error: "boom" });
+});
+
+test("recoveryJob: a refunding row resumes its refund", () => {
+  assert.deepEqual(recoveryJob({ id: "p4", status: "refunding", sessionId: null }), { kind: "refund", positionId: "p4" });
+});
+
+test("webEarnRecovery: re-queue until MAX_OPEN_RECOVERIES, then refund; a stored open is never refunded", () => {
+  const web = { source: "web" as const, openSig: null };
+  assert.equal(MAX_OPEN_RECOVERIES, 3);
+  assert.equal(webRecoveryAction({ ...web, recoveries: 0 }), "requeue");
+  assert.equal(webRecoveryAction({ ...web, recoveries: MAX_OPEN_RECOVERIES - 1 }), "requeue");
+  assert.equal(webRecoveryAction({ ...web, recoveries: MAX_OPEN_RECOVERIES }), "refund");
+  assert.equal(webRecoveryAction({ source: "web", openSig: "o", recoveries: 99 }), "requeue");
+  assert.equal(webRecoveryAction({ source: "kiosk", openSig: null, recoveries: 99 }), "requeue");
+});
+
+test("a failed refund stays refunding for the recovery sweep", () => {
+  assert.deepEqual(failedPositionPatch("refund", none, "boom"), { status: "refunding", error: "boom" });
 });
