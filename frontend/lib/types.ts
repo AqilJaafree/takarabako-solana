@@ -309,7 +309,8 @@ export interface SolanaPosition {
   id: string;
   tier: SolTier;
   label: string;
-  status: "opening" | "open" | "closing" | "closed" | "failed";
+  status: "funding" | "opening" | "open" | "closing" | "closed" | "failed";
+  source: "kiosk" | "web";
   musdIn: number;
   valueUsd: number | null;
   feesUsd: number | null;
@@ -329,4 +330,16 @@ export interface SolanaMe {
   wallet: string | null;
   musd: number | null;
   positions: SolanaPosition[];
+}
+
+/// POST /solana/earn/prepare → the transfer to approve.
+export interface WebEarnPrepared {
+  id: string;
+  tx: string; // base64, unsigned
+}
+
+/// POST /solana/earn/submit
+export interface WebEarnSubmitted {
+  id: string;
+  status: "opening" | "funding";
 }

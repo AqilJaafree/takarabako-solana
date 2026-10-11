@@ -25,7 +25,8 @@ export function PrivyShell({ children }: { children: React.ReactNode }) {
       config={{
         loginMethods: ["email", "google"],
         appearance: { theme: "dark", accentColor: "#e3b36a" },
-        embeddedWallets: { ethereum: { createOnLogin: "off" } },
+        // Both wallets are created by the backend; Privy only signs with them.
+        embeddedWallets: { ethereum: { createOnLogin: "off" }, solana: { createOnLogin: "off" } },
         // Customers sign their own transfers (tkCASH, position deeds) on Sepolia.
         defaultChain: sepolia,
         supportedChains: [sepolia],
