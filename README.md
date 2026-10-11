@@ -179,6 +179,16 @@ the dashboard and can close a position there. Closing pays the customer back
 in mUSD, swapping any SOL the position picked up along the way. There is no
 way yet to turn mUSD into USDC or cash.
 
+**Earn from the web app.** On the **Solana** page a customer who holds mUSD
+enters an amount, picks Low / Medium / High and taps Earn. The backend builds
+one mUSD transfer to the treasury (the treasury pays the fee, and a memo ties
+the transfer to that one position), the customer approves it in their Privy
+Solana wallet, and the backend checks that the signed transaction is exactly
+the one it built before co-signing and sending it. Once it confirms, the same
+queue that serves the kiosk opens the position. This counts toward the daily
+limit; kiosk Earn doesn't (its notes were already counted). An approval not
+given within 10 minutes is dropped, and nothing moves.
+
 `/ops` has a Solana panel: treasury SOL (Solana is switched off at the kiosk
 below `SOLANA_MIN_TREASURY_SOL`), mUSD supply, the pool's SOL price next to
 the real SOL/USD from [Solami](https://solami.dev) market data (with the gap
@@ -189,7 +199,8 @@ flowchart LR
     Cash[RM note at the kiosk] --> Q[deposit queue]
     Q -->|Hold| W[customer's Solana wallet<br/>mUSD]
     Q -->|Earn| T[treasury mUSD]
-    T -->|Finish| P[Meteora DLMM V2 position<br/>held by the treasury,<br/>tracked per customer]
+    W -->|web app: customer approves| T
+    T -->|Finish, or approved| P[Meteora DLMM V2 position<br/>held by the treasury,<br/>tracked per customer]
     P -->|customer closes| R[remove liquidity<br/>+ swap any SOL back]
     R -->|pay out| W
     S[(Solami market data)] -.->|SOL/USD| O["/ops panel · SOL_SIM"]
@@ -316,6 +327,12 @@ sequenceDiagram
         User->>API: POST /solana/positions/:id/close
         API->>Queue: close job
         Queue->>Sol: remove liquidity → swap SOL back → pay mUSD to the customer
+    else Solana Earn from held mUSD
+        User->>API: POST /solana/earn/prepare (amount, tier)
+        API-->>User: transfer to approve
+        User->>Privy: approve in the Solana wallet
+        User->>API: POST /solana/earn/submit (signed)
+        API->>Sol: check, co-sign, send, confirm → open the position
     end
 ```
 
@@ -361,13 +378,15 @@ cd device-agent && cp public/config.example.js public/config.js && node server.j
 
 ```bash
 cd contracts && forge test          # vault + tkCASH (18 tests, incl. a supply == reserve fuzz)
-cd backend && npm test              # needs Postgres + Redis (npm run services); 127 tests:
+cd backend && npm test              # needs Postgres + Redis (npm run services); 159 tests:
                                     # webhook signatures, tkCASH encoding, policy limits,
                                     # proposal lifecycle with the executor stubbed, monitor
-                                    # rules, Solana deposit routing, Earn position lifecycle, …
+                                    # rules, Solana deposit routing, Earn position lifecycle, web Earn
+                                    # signing checks, …
 cd backend && npm run sol:smoke     # live devnet: open and close every Earn tier
 cd backend && npm run sol:flow      # with the backend running: a customer's Hold and Earn
-                                    # visits over HTTP, checked against devnet
+                                    # visits, then web Earn with a local test wallet, over HTTP,
+                                    # checked against devnet
 cd backend && npm run typecheck
 ```
 
