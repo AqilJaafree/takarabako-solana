@@ -16,7 +16,8 @@
     "ens:migrate": "tsx --env-file=.env scripts/ens-migrate.ts",
     "ens:kiosk": "tsx --env-file=.env scripts/ens-kiosk.ts",
     "sol:setup": "tsx --env-file=.env scripts/sol-setup.ts",
-    "sol:smoke": "tsx --env-file=.env scripts/sol-smoke.ts"
+    "sol:smoke": "tsx --env-file=.env scripts/sol-smoke.ts",
+    "sol:flow": "tsx --env-file=.env scripts/sol-flow.ts"
   },
   "dependencies": {
     "@1inch/aqua-sdk": "^0.3.4",

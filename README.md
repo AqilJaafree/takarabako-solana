@@ -184,6 +184,18 @@ below `SOLANA_MIN_TREASURY_SOL`), mUSD supply, the pool's SOL price next to
 the real SOL/USD from [Solami](https://solami.dev) market data (with the gap
 between them), and open Earn positions.
 
+```mermaid
+flowchart LR
+    Cash[RM note at the kiosk] --> Q[deposit queue]
+    Q -->|Hold| W[customer's Solana wallet<br/>mUSD]
+    Q -->|Earn| T[treasury mUSD]
+    T -->|Finish| P[Meteora DLMM V2 position<br/>held by the treasury,<br/>tracked per customer]
+    P -->|customer closes| R[remove liquidity<br/>+ swap any SOL back]
+    R -->|pay out| W
+    S[(Solami market data)] -.->|SOL/USD| O["/ops panel · SOL_SIM"]
+    P -.-> O
+```
+
 Safety model: every signed transaction is stored before it is broadcast, and it
 is never re-sent until the finalized block height proves the old one can no
 longer land, so a retry can't pay twice.
@@ -192,6 +204,8 @@ longer land, so a retry can't pay twice.
 cd backend
 npm run sol:setup     # create mUSD + the DLMM pair + a seed position (needs a funded devnet treasury)
 npm run sol:smoke     # open and close Low/Medium/High against the live pair, check payouts on-chain
+npm run sol:flow      # needs npm run dev: log in, Hold visit, Earn visit, close — as the kiosk calls it
+                      # (default demo account bob.demo@takarabako.test; pass another: npm run sol:flow -- you@example.com)
 SOL_SIM=1             # in backend/.env: the treasury swaps against the pair so Earn positions accrue fees,
                       # and (with SOLAMI_API_KEY) walks the pool price toward the real SOL/USD, $25 a tick
 SOLAMI_API_KEY=sk_…   # in backend/.env: real SOL/USD from Solami (mainnet) beside the devnet pool price on /ops
@@ -250,46 +264,59 @@ The pair is mETH (a mintable ETH stand-in priced off live ETH/USD) and mUSDC.
 
 ## System flow
 
+One kiosk visit, from login to where the cash ends up. Every note is queued
+in Postgres and sent by a BullMQ worker, so the kiosk never waits on a chain.
+
 ```mermaid
 sequenceDiagram
     actor User
-    participant Kiosk as device-agent (kiosk)
+    participant Kiosk as Kiosk (/kiosk on the Pi)
     participant API as backend
     participant Privy
-    participant Claude as Claude Haiku 4.5
-    participant Aqua as 1inch Aqua (SwapVM)
-    participant ENS as ENS v2 (takarabako.eth)
-    participant Vault as TakarabakoVault
+    participant Queue as Postgres + BullMQ
+    participant Vault as Ethereum Sepolia<br/>vault · tkCASH · ENS
+    participant Sol as Solana devnet<br/>mUSD · Meteora DLMM
 
-    User->>Kiosk: enter email
-    Kiosk->>API: POST /verify {email}
-    API->>Privy: getByEmailAddress / create
-    Privy-->>API: userId + embedded wallet
-    API->>ENS: register <label>.takarabako.eth (new account only)
-    API-->>Kiosk: {userId, ensName, balance: 0}
+    User->>Kiosk: email (or scan a wallet QR)
+    Kiosk->>API: POST /verify (or /login/qr)
+    API->>Privy: find or create the user + embedded wallet
+    API-->>Kiosk: session token, ENS name
+    Kiosk->>API: POST /deposit-sessions
+    User->>Kiosk: where should the cash go?
+    Kiosk->>API: POST /deposit-sessions/:id/destination
+    opt Solana chosen, first time
+        API->>Privy: create the customer's Solana wallet
+    end
 
-    User->>Kiosk: pick a destination (Ethereum vault, Solana Hold, Solana Earn)
-    Note over Kiosk,API: Solana paths mint mUSD on devnet instead,<br/>and Earn opens a Meteora position at Finish
+    loop each banknote
+        User->>Kiosk: insert note
+        Kiosk->>API: POST /deposit (RM → USD)
+        API->>Queue: queue the note (202, destination now locked)
+        alt Ethereum vault
+            Queue->>Vault: depositFor + tkCASH recordCashIn
+        else Solana Hold or Earn
+            Queue->>Sol: mint mUSD (Hold: customer wallet, Earn: treasury)
+        end
+        Queue-->>Kiosk: pending → confirmed (live stream)
+    end
 
-    User->>Kiosk: insert cash (or fallback button)
-    Kiosk->>API: POST /deposit {userId, amount}
-    API->>Vault: depositFor(boundAddress, amount)
-    API-->>Kiosk: {balance, txHash}
+    User->>Kiosk: Finish
+    Kiosk->>API: POST /deposit-sessions/:id/finish
+    opt Solana Earn
+        API->>Queue: open-position job
+        Queue->>Sol: single-sided mUSD position (Low / Medium / High)
+    end
+    API-->>Kiosk: receipt (also emailed)
 
-    User->>Kiosk: pick a risk tier
-    Kiosk->>API: POST /agent/open-position {riskLevel, amount}
-    API->>Claude: confirm tier against live pool data
-    Claude-->>API: rationale (tier is never overridden)
-    API->>Vault: withdrawTo(treasury, amount's shares)
-    API->>Aqua: ship SwapVM strategies (one per bin)
-    API->>ENS: register aqua-<id>.takarabako.eth
-    API-->>Kiosk: {ensName, pair, apyBps, rationale}
-
-    User->>Kiosk: withdraw
-    Kiosk->>API: POST /withdraw {userId}
-    API->>Aqua: dock strategies, value at live ETH price, depositFor back
-    API->>Vault: withdrawTo(treasury, shares)
-    API-->>Kiosk: {netUsdc, receipt} (2% fee)
+    Note over User,Sol: Later, from the web app
+    alt Ethereum vault
+        User->>API: yield (1inch Aqua) or POST /withdraw (cash 2% fee, or to wallet)
+        API->>Vault: withdrawTo / dock strategies
+    else Solana Earn
+        User->>API: POST /solana/positions/:id/close
+        API->>Queue: close job
+        Queue->>Sol: remove liquidity → swap SOL back → pay mUSD to the customer
+    end
 ```
 
 ## Quickstart
@@ -339,6 +366,8 @@ cd backend && npm test              # needs Postgres + Redis (npm run services);
                                     # proposal lifecycle with the executor stubbed, monitor
                                     # rules, Solana deposit routing, Earn position lifecycle, …
 cd backend && npm run sol:smoke     # live devnet: open and close every Earn tier
+cd backend && npm run sol:flow      # with the backend running: a customer's Hold and Earn
+                                    # visits over HTTP, checked against devnet
 cd backend && npm run typecheck
 ```
 
