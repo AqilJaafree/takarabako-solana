@@ -71,10 +71,18 @@ export const liveDeps: PositionDeps = {
 
 const pairLabel = (tier: SolTier) => `mUSD/SOL · ${SOL_TIERS[tier].label}`;
 
-/// Opens the Earn position for a finished session (idempotent).
+/// Opens the Earn position for a finished kiosk session (idempotent).
 export async function openForSession(sessionId: string, d: PositionDeps = liveDeps): Promise<SolPositionRow | null> {
   if (!(await sessionSettled(sessionId))) throw new Error(`session ${sessionId}: notes still settling`);
-  let row = await createPositionForSession(sessionId, d.pairAddress());
+  const row = await createPositionForSession(sessionId, d.pairAddress());
+  if (!row || row.status !== "opening") return row;
+  return openPosition(row.id, d);
+}
+
+/// Opens a position row that is 'opening' — a kiosk session's, or a web one
+/// whose funding transfer has confirmed (idempotent; anything else is left as is).
+export async function openPosition(id: string, d: PositionDeps = liveDeps): Promise<SolPositionRow | null> {
+  let row = await getPosition(id);
   if (!row || row.status !== "opening") return row;
 
   let signature = row.openSig;
@@ -204,6 +212,7 @@ export interface PositionView {
   tier: SolTier;
   label: string;
   status: SolPositionRow["status"];
+  source: SolPositionRow["source"];
   musdIn: number;
   valueUsd: number | null;
   feesUsd: number | null;
@@ -233,7 +242,7 @@ export async function viewPosition(row: SolPositionRow, d: Pick<PositionDeps, "p
     }
   }
   return {
-    id: row.id, tier: row.tier, label: pairLabel(row.tier), status: row.status, musdIn: row.musdIn,
+    id: row.id, tier: row.tier, label: pairLabel(row.tier), status: row.status, source: row.source, musdIn: row.musdIn,
     valueUsd: row.status === "closed" ? row.valueOut : valueUsd, feesUsd, inRange,
     minBinId: row.minBinId, maxBinId: row.maxBinId, openSig: row.openSig, payoutSig: row.payoutSig,
     valueOut: row.valueOut, error: row.error, createdAt: row.createdAt,

@@ -264,3 +264,21 @@ test("a Solana Earn open is not counted again in the daily limit", async () => {
   await history.recordYieldEvent({ privyUserId: "u-p", action: "open", riskTier: "high", pair: "x", apyBps: null, amountUsd: 50, rationale: null, ensName: null, txHash: null });
   assert.equal(await usedToday("u-p"), before + 50);
 });
+
+test("openPosition opens a funded web position (no session)", async () => {
+  const { openPosition } = await import("../src/solana/positions.js");
+  const row = await store.createWebPosition({ privyUserId: "u-p", tier: "medium", pair: "PAIR", musdIn: 4, fundingMessageHash: "H", fundingValidHeight: 1 });
+  const { calls, deps } = fakeChain();
+  assert.equal((await openPosition(row.id, deps))?.status, "funding"); // not funded yet: nothing happens
+  assert.equal(calls.opened, 0);
+  await store.confirmFunding(row.id);
+  const opened = await openPosition(row.id, deps);
+  assert.deepEqual([opened?.status, opened?.positionPubkey, opened?.musdIn, opened?.source], ["open", "POS", 4, "web"]);
+  assert.deepEqual(calls.events, ["solana.position.opened"]);
+});
+
+test("viewPosition reports the source", async () => {
+  const { viewPosition } = await import("../src/solana/positions.js");
+  const row = await store.createWebPosition({ privyUserId: "u-p", tier: "low", pair: "PAIR", musdIn: 1, fundingMessageHash: "H", fundingValidHeight: 1 });
+  assert.equal((await viewPosition(row)).source, "web");
+});
