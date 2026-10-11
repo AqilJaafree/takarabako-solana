@@ -59,3 +59,18 @@ test("webOpeningWithoutJob finds confirmed web rows with no open sent after 5 mi
   await store.updatePosition(row.id, { openSig: "O" });
   assert.ok(!(await store.webOpeningWithoutJob()).includes(row.id)); // an open is in flight
 });
+
+test("web Earn counts toward the daily limit; failed ones and kiosk Earn don't", async () => {
+  const { usedToday } = await import("../src/limits.js");
+  await accounts.insertAccount({ privyUserId: "u-lim", email: "lim@x.io", privyWallet: "0x00000000000000000000000000000000000000c2", boundAddress: "0x00000000000000000000000000000000000000d2", ensName: null });
+  const before = await usedToday("u-lim");
+  const ok = await store.createWebPosition({ privyUserId: "u-lim", tier: "low", pair: "P", musdIn: 7, fundingMessageHash: "H", fundingValidHeight: 1 });
+  const bad = await store.createWebPosition({ privyUserId: "u-lim", tier: "low", pair: "P", musdIn: 50, fundingMessageHash: "H", fundingValidHeight: 1 });
+  await store.updatePosition(bad.id, { status: "failed" });
+  await pool.query(
+    "insert into solana_positions (id, privy_user_id, tier, pair, musd_in, status) values ($1, 'u-lim', 'low', 'P', 100, 'open')",
+    [crypto.randomUUID()],
+  ); // a kiosk position: its notes were already counted as deposits
+  assert.equal((await usedToday("u-lim")) - before, 7);
+  assert.ok(ok);
+});

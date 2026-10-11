@@ -3,8 +3,10 @@ import { pool } from "./db.js";
 import type { Account } from "./accounts.js";
 
 /// Daily limit for every customer: everything they move in a day (UTC) —
-/// cash deposited, withdrawals, yield positions opened, and anything sent by
-/// name — adds up to at most DAILY_LIMIT_USD ($1,000).
+/// cash deposited, withdrawals, yield positions opened (Ethereum, and Solana
+/// Earn opened from the web app with mUSD already held), and anything sent by
+/// name — adds up to at most DAILY_LIMIT_USD ($1,000). Kiosk Earn isn't
+/// counted again: its notes were already counted as deposits.
 
 export interface DailyAllowance {
   limited: boolean;
@@ -27,6 +29,7 @@ export async function usedToday(privyUserId: string): Promise<number> {
        (select coalesce(sum(usd_amount), 0) from deposits where privy_user_id = $1 and created_at >= $2 and status <> 'failed')
      + (select coalesce(sum(gross_usd), 0) from withdrawals where privy_user_id = $1 and created_at >= $2)
      + (select coalesce(sum(amount_usd), 0) from yield_events where privy_user_id = $1 and action = 'open' and chain = 'evm' and created_at >= $2)
+     + (select coalesce(sum(musd_in), 0) from solana_positions where privy_user_id = $1 and source = 'web' and status <> 'failed' and created_at >= $2)
      + (select coalesce(sum(amount_usd), 0) from transfers where from_user = $1 and created_at >= $2) as used`,
     [privyUserId, startOfUtcDay()],
   );
