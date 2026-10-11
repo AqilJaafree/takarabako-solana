@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { SolanaMe, SolanaPosition } from "@/lib/types";
 import { SOLSCAN_ACCOUNT, SOLSCAN_TX, shortAddr, usd } from "@/lib/format";
 
 /// Solana side of My box: wallet + mUSD balance, and Meteora Earn positions.
-export function SolanaCard({ refreshKey }: { refreshKey: number }) {
+export function SolanaCard({ refreshKey, showEarnLink = true }: { refreshKey: number; showEarnLink?: boolean }) {
   const [data, setData] = useState<SolanaMe | null>(null);
   const [closing, setClosing] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -55,15 +56,22 @@ export function SolanaCard({ refreshKey }: { refreshKey: number }) {
           </a>
         )}
       </div>
-      <p>
-        {usd(data.musd ?? 0)} <span className="muted small">mUSD in your wallet</span>
+      <p className="spread">
+        <span>
+          {usd(data.musd ?? 0)} <span className="muted small">mUSD in your wallet</span>
+        </span>
+        {showEarnLink && (data.musd ?? 0) > 0 && (
+          <Link href="/solana" className="small">
+            Earn with your mUSD →
+          </Link>
+        )}
       </p>
       {data.positions.length > 0 && (
         <ul className="list">
           {data.positions.map((p) => (
             <li key={p.id} className="spread">
               <span>
-                {p.label} · {p.status === "open" ? (p.inRange ? "in range" : "out of range") : p.status}
+                {p.label} · {p.status === "open" ? (p.inRange ? "in range" : "out of range") : p.status === "funding" ? "waiting for your approval" : p.status}
                 <br />
                 <span className="muted small">
                   in {usd(p.musdIn)}
