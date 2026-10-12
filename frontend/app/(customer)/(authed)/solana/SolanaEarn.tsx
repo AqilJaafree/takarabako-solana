@@ -82,7 +82,14 @@ export function SolanaEarn({ leftToday }: { leftToday: number | null }) {
 
   if (!loaded) return <p className="muted">Loading…</p>;
   if (!status?.ready) return <p className="muted">Solana isn&apos;t available right now.</p>;
-  if (me && !me.wallet) return <p className="muted">You don&apos;t have a Solana wallet yet — choose Solana at a kiosk first.</p>;
+  if (me && !me.wallet) {
+    return (
+      <p className="muted">
+        Couldn&apos;t set up your Solana wallet just now.{" "}
+        <button type="button" className="btn btn-ghost small" onClick={() => setRefreshKey((k) => k + 1)}>Try again</button>
+      </p>
+    );
+  }
 
   const held = me?.musd ?? 0;
   const formatOk = AMOUNT_FORMAT.test(amount);

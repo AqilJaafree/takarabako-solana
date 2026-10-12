@@ -73,7 +73,7 @@ export async function prepareWebEarn(account: Account, amount: unknown, tier: un
     return { status: 400, body: { error: "enter an amount of mUSD (up to 6 decimals)" } };
   }
   if (amount < MIN_WEB_EARN_MUSD) return { status: 400, body: { error: `the minimum is ${MIN_WEB_EARN_MUSD} mUSD` } };
-  if (!account.solanaWallet) return { status: 400, body: { error: "You don't have a Solana wallet yet — choose Solana at a kiosk first." } };
+  if (!account.solanaWallet) return { status: 400, body: { error: "Your Solana wallet isn't set up yet — reload the Solana page." } };
   const owner = new PublicKey(account.solanaWallet);
 
   const allowance = await dailyAllowance(account);

@@ -13,6 +13,7 @@ import { getPosition, listLivePositions, listPositions, markClosing } from "../s
 import { viewPosition } from "../solana/positions.js";
 import { enqueueClose } from "../solana/jobs.js";
 import { cancelWebEarn, prepareWebEarn, submitWebEarn } from "../solana/webEarn.js";
+import { solanaWalletFor } from "../solana/wallets.js";
 
 export const solanaRouter = Router();
 
@@ -37,17 +38,27 @@ solanaRouter.get("/solana/me", requireSession("full"), asyncHandler(async (_req,
     res.json({ ready: false, wallet: account.solanaWallet, musd: null, positions: [] });
     return;
   }
+  // No kiosk visit needed: the first look at the Solana page creates the
+  // customer's Privy Solana wallet. A Privy failure leaves it null and the
+  // page offers a retry.
+  let wallet = account.solanaWallet;
+  if (!wallet) {
+    wallet = await solanaWalletFor(account).catch((err) => {
+      console.error("[solana] /me wallet creation failed:", err instanceof Error ? err.message : err);
+      return null;
+    });
+  }
   let musd: number | null = 0;
-  if (account.solanaWallet) {
+  if (wallet) {
     try {
-      musd = fromRaw(await balanceRaw(new PublicKey(account.solanaWallet)));
+      musd = fromRaw(await balanceRaw(new PublicKey(wallet)));
     } catch (err) {
       console.error("[solana] /me mUSD balance read failed:", err instanceof Error ? err.message : err);
       musd = null;
     }
   }
   const rows = await listPositions(account.privyUserId);
-  res.json({ ready: true, wallet: account.solanaWallet, musd, positions: await Promise.all(rows.map((r) => viewPosition(r))) });
+  res.json({ ready: true, wallet, musd, positions: await Promise.all(rows.map((r) => viewPosition(r))) });
 }));
 
 /// POST /solana/positions/:id/close — queue the close; the result arrives on the live stream.
